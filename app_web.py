@@ -271,7 +271,6 @@ RUTA_DOCS = "documentos"
 RUTA_CODIFICADO_DGT = os.path.join(RUTA_DOCS, "codificado_dgt.pdf")
 RUTA_LEY_SC = os.path.join(RUTA_DOCS, "ley_organica_4_2015.pdf")
 RUTA_LEY_ANIMAL = os.path.join(RUTA_DOCS, "ley_4_2017_bienestar_animal.pdf")
-RUTA_ORDENANZA = os.path.join(RUTA_DOCS, "ordenanza_municipal.pdf")
 
 
 # =========================================================
