@@ -1,0 +1,975 @@
+import os
+import json
+import tempfile
+from datetime import datetime
+from typing import Optional
+
+import streamlit as st
+import streamlit.components.v1 as components
+from openai import OpenAI
+from pypdf import PdfReader
+from audio_recorder_streamlit import audio_recorder
+
+
+# =========================================================
+# CONFIGURACIÓN GENERAL
+# =========================================================
+
+st.set_page_config(
+    page_title="Policía IA - Poio",
+    page_icon="🚓",
+    layout="wide",
+)
+
+
+# =========================================================
+# UTILIDADES
+# =========================================================
+
+def asegurar_carpeta(nombre_carpeta: str) -> None:
+    if not os.path.exists(nombre_carpeta):
+        os.makedirs(nombre_carpeta)
+
+
+def guardar_txt(documento: str, prefijo: str) -> str:
+    asegurar_carpeta("informes")
+    marca_tiempo = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ruta = os.path.join("informes", f"{prefijo}_{marca_tiempo}.txt")
+    with open(ruta, "w", encoding="utf-8") as archivo:
+        archivo.write(documento)
+    return ruta
+
+
+def guardar_json(datos: dict, prefijo: str) -> str:
+    asegurar_carpeta("datos")
+    marca_tiempo = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ruta = os.path.join("datos", f"{prefijo}_{marca_tiempo}.json")
+    with open(ruta, "w", encoding="utf-8") as archivo:
+        json.dump(datos, archivo, ensure_ascii=False, indent=4)
+    return ruta
+
+
+def guardar_txt_con_nombre(documento: str, nombre: str) -> str:
+    asegurar_carpeta("informes")
+    ruta = os.path.join("informes", f"{nombre}.txt")
+    with open(ruta, "w", encoding="utf-8") as archivo:
+        archivo.write(documento)
+    return ruta
+
+
+def limpiar_espacios(texto: str) -> str:
+    return " ".join((texto or "").split())
+
+
+def capitalizar_si_corresponde(campo: str, valor: str) -> str:
+    valor = limpiar_espacios(valor)
+    if not valor:
+        return valor
+
+    campos_sensibles = {
+        "vehículo a",
+        "vehículo b",
+        "agentes actuantes (nip)",
+        "agentes",
+        "agentes actuantes",
+        "prueba de alcoholemia (indicar resultado o 'no procede')",
+        "prueba de drogas (indicar resultado o 'no procede')",
+    }
+
+    if campo.lower() in campos_sensibles:
+        return valor
+
+    if "matrícula" in campo.lower():
+        return valor.upper()
+
+    return valor[0].upper() + valor[1:]
+
+
+def normalizar_datos(diccionario: dict) -> dict:
+    return {k: capitalizar_si_corresponde(k, v) for k, v in diccionario.items()}
+
+
+def construir_bloque_usuario(datos: dict) -> str:
+    return "\n".join([f"{k}: {v}" for k, v in datos.items() if str(v).strip()])
+
+
+def boton_copiar_web(texto: str, clave: str):
+    texto_js = json.dumps(texto)
+    html = f"""
+    <div style="margin-top: 8px; margin-bottom: 8px;">
+        <button
+            onclick='navigator.clipboard.writeText({texto_js}).then(() => {{
+                const msg = document.getElementById("copiado-{clave}");
+                if (msg) {{
+                    msg.innerText = "Texto copiado";
+                    setTimeout(() => msg.innerText = "", 2000);
+                }}
+            }}).catch(() => {{
+                const msg = document.getElementById("copiado-{clave}");
+                if (msg) {{
+                    msg.innerText = "No se pudo copiar";
+                    setTimeout(() => msg.innerText = "", 2000);
+                }}
+            }});'
+            style="
+                width: 100%;
+                min-height: 52px;
+                border: none;
+                border-radius: 12px;
+                background: #1f77b4;
+                color: white;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+            "
+        >
+            📋 Copiar texto
+        </button>
+        <div id="copiado-{clave}" style="margin-top:8px; font-size:14px; color:#2e7d32;"></div>
+    </div>
+    """
+    components.html(html, height=90)
+
+
+# =========================================================
+# OPENAI
+# =========================================================
+
+@st.cache_resource(show_spinner=False)
+def get_client(api_key: str) -> OpenAI:
+    return OpenAI(api_key=api_key)
+
+
+def generar_texto_con_ia(api_key: str, prompt_sistema: str, datos_usuario: str) -> str:
+    client = get_client(api_key)
+    respuesta = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.15,
+        messages=[
+            {"role": "system", "content": prompt_sistema},
+            {"role": "user", "content": datos_usuario},
+        ],
+    )
+    return respuesta.choices[0].message.content or ""
+
+
+def transcribir_audio_con_openai(api_key: str, audio_bytes: bytes) -> str:
+    client = get_client(api_key)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+
+    try:
+        with open(tmp_path, "rb") as audio_file:
+            transcripcion = client.audio.transcriptions.create(
+                model="gpt-4o-mini-transcribe",
+                file=audio_file,
+            )
+        return getattr(transcripcion, "text", "") or ""
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
+
+def bloque_dictado(api_key: str, clave: str, etiqueta: str = "Dictado por voz") -> str:
+    st.markdown(f"#### 🎤 {etiqueta}")
+    audio_bytes = audio_recorder(
+        text="Pulsa para grabar",
+        recording_color="#d32f2f",
+        neutral_color="#1976d2",
+        icon_name="microphone",
+        icon_size="2x",
+        key=f"audio_{clave}",
+    )
+
+    if audio_bytes:
+        if st.button("Transcribir audio", key=f"transcribir_{clave}"):
+            with st.spinner("Transcribiendo audio..."):
+                texto = transcribir_audio_con_openai(api_key, audio_bytes)
+            st.session_state[f"dictado_{clave}"] = texto
+            st.success("Audio transcrito.")
+
+    return st.session_state.get(f"dictado_{clave}", "")
+
+
+# =========================================================
+# PDF / BASES LEGALES
+# =========================================================
+
+@st.cache_data(show_spinner=False)
+def extraer_texto_pdf_path(ruta_pdf: str) -> str:
+    if not ruta_pdf or not os.path.exists(ruta_pdf):
+        return ""
+    try:
+        lector = PdfReader(ruta_pdf)
+        paginas = []
+        for pagina in lector.pages:
+            texto = pagina.extract_text()
+            if texto:
+                paginas.append(texto)
+        return "\n".join(paginas)
+    except Exception:
+        return ""
+
+
+@st.cache_data(show_spinner=False)
+def extraer_texto_pdf_upload(archivo_pdf) -> str:
+    if archivo_pdf is None:
+        return ""
+    try:
+        lector = PdfReader(archivo_pdf)
+        paginas = []
+        for pagina in lector.pages:
+            texto = pagina.extract_text()
+            if texto:
+                paginas.append(texto)
+        return "\n".join(paginas)
+    except Exception:
+        return ""
+
+
+def obtener_texto_base(ruta_local: str, archivo_subido) -> str:
+    texto_local = extraer_texto_pdf_path(ruta_local) if ruta_local else ""
+    texto_subido = extraer_texto_pdf_upload(archivo_subido) if archivo_subido is not None else ""
+    return texto_subido or texto_local
+
+
+def buscar_fragmentos_codificado(texto_codificado: str, consulta: str, max_fragmentos: int = 5) -> str:
+    if not texto_codificado or not consulta:
+        return ""
+
+    bloques = [b.strip() for b in texto_codificado.split("\n\n") if b.strip()]
+    palabras = [p.lower() for p in consulta.split() if len(p) > 2]
+
+    puntuados = []
+    for bloque in bloques:
+        bloque_lower = bloque.lower()
+        puntuacion = sum(1 for p in palabras if p in bloque_lower)
+        if puntuacion > 0:
+            puntuados.append((puntuacion, bloque))
+
+    puntuados.sort(key=lambda x: x[0], reverse=True)
+    seleccionados = [bloque for _, bloque in puntuados[:max_fragmentos]]
+    return "\n\n---\n\n".join(seleccionados)
+
+
+def mostrar_estado_base(nombre: str, texto_base: str):
+    if texto_base:
+        st.success(f"Base cargada: {nombre}")
+    else:
+        st.warning(f"No se ha podido cargar la base: {nombre}")
+
+
+# =========================================================
+# RUTAS DE PDF LOCALES EN EL REPO
+# =========================================================
+
+RUTA_DOCS = "docs"
+RUTA_CODIFICADO_DGT = os.path.join(RUTA_DOCS, "codificado_dgt.pdf")
+RUTA_LEY_SC = os.path.join(RUTA_DOCS, "ley_organica_4_2015.pdf")
+RUTA_LEY_ANIMAL = os.path.join(RUTA_DOCS, "ley_4_2017_bienestar_animal.pdf")
+RUTA_ORDENANZA = os.path.join(RUTA_DOCS, "ordenanza_municipal.pdf")
+
+
+# =========================================================
+# PROMPTS
+# =========================================================
+
+PROMPT_ACCIDENTE = (
+    "Eres un asistente de redacción policial especializado en informes técnicos de accidentes "
+    "para la Policía Local de Poio.\n\n"
+    "Debes redactar un INFORME TÉCNICO DE ACCIDENTE con estilo policial real, técnico, formal y objetivo.\n"
+    "NO inventes datos. SOLO usa los datos proporcionados por el usuario.\n"
+    "Si un dato no ha sido facilitado, no lo menciones.\n\n"
+    "ENCABEZADO OBLIGATORIO:\n"
+    "Debe comenzar exactamente con:\n"
+    "'Los instructores en funciones de Policía Judicial de Tráfico, pertenecientes al Cuerpo de la Policía Local de Poio, hacen constar mediante el presente informe técnico:'\n\n"
+    "ESTRUCTURA Y ESTILO:\n"
+    "- Utiliza párrafos narrativos que comiencen por 'Que...'\n"
+    "- Debe integrar hora del aviso y hora de personación\n"
+    "- No uses subtítulos como 'Conclusión:'\n"
+    "- No uses expresiones como 'según manifiesta' o 'según el relato de los conductores' para reconstruir la dinámica\n"
+    "- La reconstrucción debe basarse en daños, posición de los vehículos, configuración de la vía y datos objetivos facilitados\n"
+    "- Redacción cohesionada, formal y técnica\n\n"
+    "VEHÍCULOS:\n"
+    "- Vehículo A y vehículo B deben describirse separados y con este formato:\n"
+    "  vehículo marca: X, modelo: X, color: X, matrícula: X\n\n"
+    "INTERVINIENTES:\n"
+    "- Asocia siempre conductor A con vehículo A y conductor B con vehículo B\n"
+    "- Si existen pasajeros, asócialos a su vehículo correspondiente\n"
+    "- Si se facilita la posición del pasajero, inclúyela expresamente\n"
+    "- Si hay peatones o testigos, recógelos en párrafos diferenciados\n\n"
+    "DINÁMICA DEL ACCIDENTE:\n"
+    "Debe introducirse con una fórmula similar a:\n"
+    "'Que examinados los daños apreciados en los vehículos y la configuración de la vía, se procede a la reconstrucción de la dinámica del accidente.'\n"
+    "Después desarrolla la dinámica de forma técnica, explicando maniobras, trayectorias, posiciones y punto de impacto, sin atribuirla literalmente a las manifestaciones de los conductores.\n\n"
+    "REPORTAJE FOTOGRÁFICO:\n"
+    "- Si en el campo correspondiente pone 'sí', incluye un párrafo indicando que los agentes actuantes realizan reportaje fotográfico de los daños y del entorno del siniestro.\n"
+    "- Si pone 'no', no lo menciones.\n\n"
+    "ALCOHOLEMIA:\n"
+    "- Solo incluir si el campo no dice 'no procede'\n"
+    "- Debe integrarse en redacción formal y mencionar que la prueba se realiza conforme al artículo 14 del Real Decreto Legislativo 6/2015\n"
+    "- Nunca inventes resultados.\n\n"
+    "DROGAS:\n"
+    "- Solo incluir si el campo no dice 'no procede'\n"
+    "- Debe integrarse en redacción formal y mencionar que la prueba se realiza conforme al artículo 14 del Real Decreto Legislativo 6/2015\n"
+    "- Nunca inventes resultados.\n\n"
+    "CONCLUSIÓN TÉCNICA:\n"
+    "- Debe integrarse en un párrafo que empiece por 'Que a la vista de todo lo expuesto, se concluye que...'\n"
+    "- Debe basarse únicamente en la causa técnica del accidente y en los datos facilitados.\n\n"
+    "CIERRE OBLIGATORIO:\n"
+    "Finalizar exactamente con:\n"
+    "'Y para que así conste, se extiende el presente informe técnico policial, que se emite en base a la inspección ocular, manifestaciones recabadas y análisis de las circunstancias concurrentes, quedando sometido a cualquier otro mejor fundado.'"
+)
+
+PROMPT_ATESTADO_EXPOSICION = (
+    "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
+    "Debes redactar una EXPOSICIÓN DE HECHOS para atestado, en castellano, con tono policial formal, técnico y cronológico.\n"
+    "NO inventes datos. SOLO usa la información facilitada.\n\n"
+    "IMPORTANTE:\n"
+    "- Redacta en formato narrativo con párrafos que comiencen por 'Que...'\n"
+    "- Debe reflejar de forma cronológica la actuación policial\n"
+    "- Debe integrar hora del aviso y hora de personación\n"
+    "- No incluir manifestaciones literales de las partes salvo que se indique expresamente\n"
+    "- No hacer valoraciones jurídicas ni conclusiones\n"
+    "- Al inicio, la persona que llama debe figurar como alertante o requirente, no como denunciante\n"
+    "- Si se facilita identidad telefónica, utiliza fórmulas como: 'una persona que dice ser e identificarse verbalmente como D...., con DNI..., y teléfono...'\n"
+    "- Cuando hables de los agentes, utiliza la fórmula 'los agentes con NIP...'\n"
+    "- Si se facilita indicativo, integra la fórmula 'uniformados reglamentariamente, se desplazan en vehículo oficial rotulado bajo el indicativo ...'\n"
+    "- Nunca digas que el requirente o denunciante es trasladado en vehículo oficial; si procede, indica que se desplaza posteriormente por sus propios medios a dependencias policiales\n"
+    "- Si se habla de daños en puerta o cerradura, la valoración detallada debe reservarse principalmente para la inspección ocular\n"
+    "- Si se recoge manifestación posterior, puede decirse que el requirente es informado o citado para personarse a fin de formular denuncia y prestar manifestación\n\n"
+    "ESTILO:\n"
+    "- Lenguaje claro, técnico y profesional\n"
+    "- Redacción continua, sin listas\n"
+    "- Uso de expresiones tipo: 'Que siendo las...', 'Que en el teléfono oficial de la Jefatura...', 'Que una vez en el lugar...'\n\n"
+    "Debe ser un texto válido para incorporar directamente a un atestado policial."
+)
+
+PROMPT_ATESTADO_INSPECCION = (
+    "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
+    "Debes redactar una INSPECCIÓN OCULAR para atestado, con lenguaje técnico, descriptivo y objetivo.\n"
+    "NO inventes datos. SOLO usa la información facilitada.\n\n"
+    "IMPORTANTE:\n"
+    "- Redacta en párrafos que comiencen por 'Que...'\n"
+    "- No incluir interpretaciones concluyentes ni manifestaciones del alertante, salvo referencia mínima imprescindible\n"
+    "- Describir únicamente lo observado\n"
+    "- Si existen daños en puerta, cerradura, bombín, marco, ventanas o accesos, descríbelos con precisión material\n"
+    "- Si el usuario aporta detalle, concreta ubicación del daño, tipo de fractura o marcas compatibles con útil empleado\n"
+    "- Usa fórmulas prudentes como 'compatible con un posible acceso no autorizado'\n"
+    "- Si se indica reportaje fotográfico, inclúyelo expresamente\n"
+    "- No mezclar la inspección ocular con inicio de diligencias ni con comparecencias en sede policial\n\n"
+    "ESTILO:\n"
+    "- Técnico, claro y objetivo\n"
+    "- Preciso y sin adornos\n"
+    "- Apto para diligencias policiales"
+)
+
+PROMPT_INFORME_MUNICIPAL = (
+    "Eres un asistente de redacción policial para la Policía Local de Poio. "
+    "Debes redactar un INFORME MUNICIPAL o de incidencia para el concello, en castellano, con tono formal, objetivo, técnico y administrativo. "
+    "No inventes datos. Usa solo la información facilitada. "
+    "Integra hora del aviso y hora de personación si constan. "
+    "La redacción debe ser apta para conflictos entre particulares, incidencias en inmuebles, requerimientos vecinales, constancias o incidencias municipales."
+)
+
+PROMPT_PARTE_SERVICIO = (
+    "Eres un asistente de redacción policial para la Policía Local de Poio. "
+    "Debes redactar un PARTE DE SERVICIO interno, en castellano, con tono formal, claro, objetivo y operativo. "
+    "No inventes datos. Usa solo la información proporcionada por el usuario. "
+    "Integra hora del aviso y hora de personación si constan."
+)
+
+PROMPT_ANOMALIA = (
+    "Eres un asistente de redacción policial para la Policía Local de Poio. "
+    "Debes redactar una ANOMALÍA o comunicación breve de incidencia en vía pública o elementos urbanos, "
+    "en castellano, con tono claro, breve, técnico y operativo. "
+    "No inventes datos. Usa solo la información proporcionada. "
+    "Integra hora del aviso y hora de personación si constan."
+)
+
+PROMPT_SANCIONADOR_GENERAL = (
+    "Eres un asistente sancionador policial. Analiza el supuesto y devuelve SIEMPRE en este formato:\n\n"
+    "NORMA:\n"
+    "ARTÍCULO:\n"
+    "APARTADO:\n"
+    "OPCIÓN:\n"
+    "CALIFICACIÓN:\n"
+    "PUNTOS:\n"
+    "CUANTÍA:\n"
+    "CUANTÍA REDUCIDA:\n"
+    "RESPONSABLE:\n"
+    "HECHO DENUNCIADO:\n"
+    "OBSERVACIONES:\n\n"
+    "Si no encaja claramente, indícalo con prudencia y explica el mejor encaje posible."
+)
+
+
+# =========================================================
+# CAMPOS
+# =========================================================
+
+CAMPOS_ACCIDENTE = [
+    "Fecha",
+    "Hora del aviso",
+    "Hora de personación",
+    "Lugar",
+    "Agentes actuantes (NIP)",
+    "Vehículo A",
+    "Conductor A",
+    "Pasajeros vehículo A",
+    "Vehículo B",
+    "Conductor B",
+    "Pasajeros vehículo B",
+    "Peatones implicados",
+    "Testigos",
+    "Descripción de la vía",
+    "Daños observados",
+    "Relato técnico del accidente",
+    "Actuaciones realizadas",
+    "Reportaje fotográfico (sí/no)",
+    "Prueba de alcoholemia (indicar resultado o 'no procede')",
+    "Prueba de drogas (indicar resultado o 'no procede')",
+    "Conclusión técnica",
+    "Observaciones adicionales",
+]
+
+CAMPOS_ATESTADO_COMPLETO = [
+    "Fecha",
+    "Hora",
+    "Hora de personación",
+    "Lugar",
+    "Agentes actuantes (NIP)",
+    "Indicativo policial",
+    "Alertante o requirente",
+    "DNI del alertante o requirente",
+    "Teléfono del alertante o requirente",
+    "Motivo del aviso",
+    "Relato general de los hechos",
+    "Actuaciones realizadas",
+    "Descripción del lugar",
+    "Accesos",
+    "Daños observados",
+    "Elementos relevantes",
+    "Reportaje fotográfico (sí/no)",
+    "Observaciones adicionales",
+]
+
+CAMPOS_INFORME_MUNICIPAL = [
+    "Fecha",
+    "Hora",
+    "Hora de personación",
+    "Lugar",
+    "Agentes",
+    "Asunto",
+    "Partes implicadas",
+    "Versión de la parte A",
+    "Versión de la parte B",
+    "Observaciones de los agentes",
+    "Documentación o imágenes",
+    "Análisis técnico o valoración policial",
+    "Conclusión o resultado",
+    "Observaciones adicionales",
+]
+
+CAMPOS_PARTE_SERVICIO = [
+    "Fecha",
+    "Hora",
+    "Hora de personación",
+    "Lugar",
+    "Agentes",
+    "Asunto o motivo",
+    "Personas implicadas o comparecientes",
+    "Relato libre de lo sucedido o de la gestión realizada",
+    "Actuaciones policiales realizadas",
+    "Documentación o imágenes adjuntas",
+    "Observaciones adicionales",
+]
+
+CAMPOS_ANOMALIA = [
+    "Fecha",
+    "Hora",
+    "Hora de personación",
+    "Lugar exacto",
+    "Agentes",
+    "Tipo de anomalía",
+    "Descripción breve de la incidencia observada",
+    "Riesgo o afectación apreciada",
+    "Actuaciones realizadas",
+    "Servicio o departamento avisado",
+    "Observaciones adicionales",
+]
+
+CAMPOS_PATRULLA_ACCIDENTE = [
+    "Fecha",
+    "Hora del aviso",
+    "Hora de personación",
+    "Lugar",
+    "Agentes actuantes (NIP)",
+    "Vehículo A",
+    "Vehículo B",
+    "Daños observados",
+    "Relato técnico del accidente",
+    "Conclusión técnica",
+]
+
+CAMPOS_PATRULLA_ATESTADO = [
+    "Fecha",
+    "Hora",
+    "Hora de personación",
+    "Lugar",
+    "Agentes actuantes (NIP)",
+    "Indicativo policial",
+    "Motivo del aviso",
+    "Relato general de los hechos",
+    "Daños observados",
+]
+
+CAMPOS_PATRULLA_MUNICIPAL = [
+    "Fecha",
+    "Hora",
+    "Hora de personación",
+    "Lugar",
+    "Agentes",
+    "Asunto",
+    "Partes implicadas",
+    "Observaciones de los agentes",
+    "Conclusión o resultado",
+]
+
+CAMPOS_PATRULLA_SERVICIO = [
+    "Fecha",
+    "Hora",
+    "Hora de personación",
+    "Lugar",
+    "Agentes",
+    "Asunto o motivo",
+    "Relato libre de lo sucedido o de la gestión realizada",
+    "Actuaciones policiales realizadas",
+]
+
+CAMPOS_PATRULLA_ANOMALIA = [
+    "Fecha",
+    "Hora",
+    "Hora de personación",
+    "Lugar exacto",
+    "Agentes",
+    "Tipo de anomalía",
+    "Descripción breve de la incidencia observada",
+    "Actuaciones realizadas",
+    "Servicio o departamento avisado",
+]
+
+
+# =========================================================
+# COMPONENTES UI
+# =========================================================
+
+def render_form_fields(campos: list[str], key_prefix: str) -> dict:
+    datos = {}
+    for campo in campos:
+        valor = st.text_area(
+            campo,
+            value=st.session_state.get(f"{key_prefix}_{campo}", ""),
+            key=f"widget_{key_prefix}_{campo}",
+            height=80,
+        )
+        st.session_state[f"{key_prefix}_{campo}"] = valor
+        datos[campo] = valor
+    return normalizar_datos(datos)
+
+
+def mostrar_resultado(texto: str, datos: dict, prefijo: str):
+    st.subheader("Resultado")
+    st.text_area("Documento generado", texto, height=450)
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        boton_copiar_web(texto, prefijo)
+
+    with col2:
+        st.download_button(
+            "Descargar TXT",
+            data=texto.encode("utf-8"),
+            file_name=f"{prefijo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            mime="text/plain",
+        )
+
+    with col3:
+        if st.button("Guardar TXT y JSON", key=f"guardar_{prefijo}"):
+            ruta_txt = guardar_txt(texto, prefijo)
+            ruta_json = guardar_json(datos, prefijo)
+            st.success(f"Guardado en: {ruta_txt} y {ruta_json}")
+
+    nombre = st.text_input("Guardar con nombre", key=f"nombre_{prefijo}")
+    if st.button("Guardar TXT", key=f"guardar_nombre_{prefijo}"):
+        if nombre.strip():
+            ruta = guardar_txt_con_nombre(texto, nombre.strip())
+            st.success(f"Guardado en: {ruta}")
+        else:
+            st.warning("Escribe un nombre válido.")
+
+
+# =========================================================
+# PÁGINAS
+# =========================================================
+
+def pagina_accidente(api_key: str):
+    st.header("Informe técnico de accidente")
+    if modo_patrulla:
+        datos = render_form_fields(CAMPOS_PATRULLA_ACCIDENTE, "accidente")
+    else:
+        datos = render_form_fields(CAMPOS_ACCIDENTE, "accidente")
+
+    dictado = bloque_dictado(api_key, "accidente", "Dictado general del accidente")
+    if dictado:
+        st.text_area("Texto dictado", dictado, height=120)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        generar = st.button("Generar informe técnico")
+    with col2:
+        regenerar = st.button("Regenerar con mismos datos")
+
+    if generar or regenerar:
+        with st.spinner("Generando informe..."):
+            texto = generar_texto_con_ia(api_key, PROMPT_ACCIDENTE, construir_bloque_usuario(datos))
+        st.session_state["resultado_accidente"] = texto
+        st.session_state["datos_accidente"] = datos
+
+    if st.session_state.get("resultado_accidente"):
+        mostrar_resultado(
+            st.session_state["resultado_accidente"],
+            st.session_state.get("datos_accidente", {}),
+            "accidente",
+        )
+
+
+def pagina_atestado(api_key: str):
+    st.header("Atestado completo")
+    if modo_patrulla:
+        datos = render_form_fields(CAMPOS_PATRULLA_ATESTADO, "atestado")
+    else:
+        datos = render_form_fields(CAMPOS_ATESTADO_COMPLETO, "atestado")
+
+    dictado = bloque_dictado(api_key, "atestado", "Dictado general del atestado")
+    if dictado:
+        st.text_area("Texto dictado", dictado, height=120)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        generar = st.button("Generar atestado completo")
+    with col2:
+        regenerar = st.button("Regenerar atestado")
+
+    if generar or regenerar:
+        with st.spinner("Generando exposición e inspección ocular..."):
+            bloque = construir_bloque_usuario(datos)
+            exposicion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_EXPOSICION, bloque)
+            inspeccion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_INSPECCION, bloque)
+            documento = (
+                "===== EXPOSICIÓN DE HECHOS =====\n\n"
+                + exposicion
+                + "\n\n===== INSPECCIÓN OCULAR =====\n\n"
+                + inspeccion
+            )
+        st.session_state["resultado_atestado"] = documento
+        st.session_state["datos_atestado"] = datos
+
+    if st.session_state.get("resultado_atestado"):
+        mostrar_resultado(
+            st.session_state["resultado_atestado"],
+            st.session_state.get("datos_atestado", {}),
+            "atestado_completo",
+        )
+
+
+def pagina_informe_municipal(api_key: str):
+    st.header("Informe municipal")
+    if modo_patrulla:
+        datos = render_form_fields(CAMPOS_PATRULLA_MUNICIPAL, "municipal")
+    else:
+        datos = render_form_fields(CAMPOS_INFORME_MUNICIPAL, "municipal")
+
+    dictado = bloque_dictado(api_key, "municipal", "Dictado general del informe municipal")
+    if dictado:
+        st.text_area("Texto dictado", dictado, height=120)
+
+    if st.button("Generar informe municipal"):
+        with st.spinner("Generando informe..."):
+            texto = generar_texto_con_ia(api_key, PROMPT_INFORME_MUNICIPAL, construir_bloque_usuario(datos))
+        st.session_state["resultado_municipal"] = texto
+        st.session_state["datos_municipal"] = datos
+
+    if st.session_state.get("resultado_municipal"):
+        mostrar_resultado(
+            st.session_state["resultado_municipal"],
+            st.session_state.get("datos_municipal", {}),
+            "informe_municipal",
+        )
+
+
+def pagina_parte_servicio(api_key: str):
+    st.header("Parte de servicio")
+    if modo_patrulla:
+        datos = render_form_fields(CAMPOS_PATRULLA_SERVICIO, "servicio")
+    else:
+        datos = render_form_fields(CAMPOS_PARTE_SERVICIO, "servicio")
+
+    dictado = bloque_dictado(api_key, "servicio", "Dictado general del parte de servicio")
+    if dictado:
+        st.text_area("Texto dictado", dictado, height=120)
+
+    if st.button("Generar parte de servicio"):
+        with st.spinner("Generando parte..."):
+            texto = generar_texto_con_ia(api_key, PROMPT_PARTE_SERVICIO, construir_bloque_usuario(datos))
+        st.session_state["resultado_servicio"] = texto
+        st.session_state["datos_servicio"] = datos
+
+    if st.session_state.get("resultado_servicio"):
+        mostrar_resultado(
+            st.session_state["resultado_servicio"],
+            st.session_state.get("datos_servicio", {}),
+            "parte_servicio",
+        )
+
+
+def pagina_anomalia(api_key: str):
+    st.header("Anomalía")
+    if modo_patrulla:
+        datos = render_form_fields(CAMPOS_PATRULLA_ANOMALIA, "anomalia")
+    else:
+        datos = render_form_fields(CAMPOS_ANOMALIA, "anomalia")
+
+    dictado = bloque_dictado(api_key, "anomalia", "Dictado general de la anomalía")
+    if dictado:
+        st.text_area("Texto dictado", dictado, height=120)
+
+    if st.button("Generar anomalía"):
+        with st.spinner("Generando anomalía..."):
+            texto = generar_texto_con_ia(api_key, PROMPT_ANOMALIA, construir_bloque_usuario(datos))
+        st.session_state["resultado_anomalia"] = texto
+        st.session_state["datos_anomalia"] = datos
+
+    if st.session_state.get("resultado_anomalia"):
+        mostrar_resultado(
+            st.session_state["resultado_anomalia"],
+            st.session_state.get("datos_anomalia", {}),
+            "anomalia",
+        )
+
+
+def pagina_sancionador(api_key: str):
+    st.header("Asistente sancionador")
+
+    tipo = st.selectbox(
+        "Materia",
+        [
+            "Tráfico / DGT",
+            "Seguridad ciudadana LO 4/2015",
+            "Bienestar animal Galicia",
+            "Ordenanzas municipales",
+        ],
+    )
+
+    texto_base = ""
+    archivo_pdf = None
+
+    if tipo == "Tráfico / DGT":
+        st.subheader("Base: Codificado DGT")
+        archivo_pdf = st.file_uploader(
+            "Sube el PDF del codificado DGT si quieres sustituir el de la app",
+            type=["pdf"],
+            key="codificado_dgt_pdf",
+        )
+        texto_base = obtener_texto_base(RUTA_CODIFICADO_DGT, archivo_pdf)
+        mostrar_estado_base("Codificado DGT", texto_base)
+
+    elif tipo == "Seguridad ciudadana LO 4/2015":
+        st.subheader("Base: Ley Orgánica 4/2015")
+        archivo_pdf = st.file_uploader(
+            "Sube el PDF de seguridad ciudadana si quieres sustituir el de la app",
+            type=["pdf"],
+            key="ley_sc_pdf",
+        )
+        texto_base = obtener_texto_base(RUTA_LEY_SC, archivo_pdf)
+        mostrar_estado_base("LO 4/2015", texto_base)
+
+    elif tipo == "Bienestar animal Galicia":
+        st.subheader("Base: Ley 4/2017 Galicia")
+        archivo_pdf = st.file_uploader(
+            "Sube el PDF de bienestar animal si quieres sustituir el de la app",
+            type=["pdf"],
+            key="ley_animal_pdf",
+        )
+        texto_base = obtener_texto_base(RUTA_LEY_ANIMAL, archivo_pdf)
+        mostrar_estado_base("Ley 4/2017 Galicia", texto_base)
+
+    elif tipo == "Ordenanzas municipales":
+        st.subheader("Base: Ordenanza municipal")
+        archivo_pdf = st.file_uploader(
+            "Sube el PDF de la ordenanza si quieres sustituir el de la app",
+            type=["pdf"],
+            key="ordenanza_pdf",
+        )
+        texto_base = obtener_texto_base(RUTA_ORDENANZA, archivo_pdf)
+        mostrar_estado_base("Ordenanza municipal", texto_base)
+
+    caso = st.text_area("Describe el caso", height=120)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        buscar_base = st.button("Buscar base")
+    with col2:
+        analizar = st.button("Analizar con IA")
+
+    if buscar_base:
+        fragmentos = buscar_fragmentos_codificado(texto_base, caso)
+        st.session_state["fragmentos_base_sancionador"] = fragmentos
+
+        if fragmentos:
+            st.subheader("Fragmentos encontrados")
+            st.text_area("Base encontrada", fragmentos, height=260)
+        else:
+            st.info("No se encontraron fragmentos claros para ese caso.")
+
+    if analizar:
+        fragmentos = st.session_state.get("fragmentos_base_sancionador", "")
+
+        if tipo == "Tráfico / DGT":
+            prompt = (
+                "Eres un asistente experto en el codificado de infracciones de tráfico DGT en España.\n\n"
+                "Debes analizar el supuesto usando PRIORITARIAMENTE los fragmentos del codificado DGT aportados.\n"
+                "No respondas de forma genérica si el codificado permite concretar más.\n\n"
+                "Devuelve SIEMPRE en este formato:\n"
+                "NORMA:\n"
+                "ARTÍCULO:\n"
+                "APARTADO:\n"
+                "OPCIÓN:\n"
+                "CALIFICACIÓN:\n"
+                "PUNTOS:\n"
+                "CUANTÍA:\n"
+                "CUANTÍA REDUCIDA:\n"
+                "RESPONSABLE:\n"
+                "HECHO DENUNCIADO:\n"
+                "OBSERVACIONES:\n\n"
+                "Si no encuentras encaje claro en el codificado aportado, dilo expresamente."
+            )
+
+        elif tipo == "Seguridad ciudadana LO 4/2015":
+            prompt = (
+                "Eres un asistente experto en la Ley Orgánica 4/2015 de protección de la seguridad ciudadana.\n"
+                "Debes analizar el supuesto usando prioritariamente los fragmentos de la ley aportados.\n"
+                "Devuelve SIEMPRE: NORMA, ARTÍCULO, APARTADO, OPCIÓN, CALIFICACIÓN, PUNTOS, CUANTÍA, CUANTÍA REDUCIDA, RESPONSABLE, HECHO DENUNCIADO y OBSERVACIONES.\n"
+                "Sé prudente y usa 'podría encajar' cuando el supuesto dependa de matices."
+            )
+
+        elif tipo == "Bienestar animal Galicia":
+            prompt = (
+                "Eres un asistente experto en la Ley 4/2017 de Galicia de protección y bienestar animal.\n"
+                "Debes analizar el supuesto usando prioritariamente los fragmentos de la ley aportados.\n"
+                "Devuelve SIEMPRE: NORMA, ARTÍCULO, APARTADO, OPCIÓN, CALIFICACIÓN, PUNTOS, CUANTÍA, CUANTÍA REDUCIDA, RESPONSABLE, HECHO DENUNCIADO y OBSERVACIONES.\n"
+                "Aclara si el encaje puede variar entre leve, grave o muy grave según el perjuicio causado."
+            )
+
+        else:
+            prompt = (
+                "Eres un asistente experto en ordenanzas municipales.\n"
+                "Debes analizar el supuesto usando prioritariamente los fragmentos de la ordenanza aportados.\n"
+                "Devuelve SIEMPRE: NORMA, ARTÍCULO, APARTADO, OPCIÓN, CALIFICACIÓN, PUNTOS, CUANTÍA, CUANTÍA REDUCIDA, RESPONSABLE, HECHO DENUNCIADO y OBSERVACIONES.\n"
+                "Si el encaje no es seguro, dilo claramente."
+            )
+
+        entrada_usuario = (
+            f"SUPUESTO:\n{caso}\n\n"
+            f"FRAGMENTOS NORMATIVOS ENCONTRADOS:\n{fragmentos if fragmentos else 'No se aportaron fragmentos relevantes.'}"
+        )
+
+        with st.spinner("Analizando supuesto..."):
+            texto = generar_texto_con_ia(api_key, prompt, entrada_usuario)
+
+        st.session_state["resultado_sancionador"] = texto
+        st.session_state["datos_sancionador"] = {"tipo": tipo, "caso": caso}
+
+    if st.session_state.get("resultado_sancionador"):
+        mostrar_resultado(
+            st.session_state["resultado_sancionador"],
+            st.session_state.get("datos_sancionador", {}),
+            "sancionador",
+        )
+
+
+# =========================================================
+# SIDEBAR / APP PRINCIPAL
+# =========================================================
+
+st.sidebar.title("Policía IA")
+st.sidebar.caption("Versión web para ordenador y móvil")
+modo_patrulla = st.sidebar.toggle("Modo patrulla / móvil", value=True)
+
+if modo_patrulla:
+    st.sidebar.success("Modo patrulla activo")
+    st.markdown(
+        """
+        <style>
+        .stButton > button {
+            width: 100%;
+            min-height: 56px;
+            font-size: 18px;
+            font-weight: 600;
+            border-radius: 12px;
+        }
+        textarea {
+            font-size: 17px !important;
+        }
+        .stTextInput input {
+            font-size: 17px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+api_key = st.sidebar.text_input(
+    "API key de OpenAI",
+    type="password",
+    help="Pega aquí tu clave. No se guarda fuera de tu sesión.",
+)
+
+pagina = st.sidebar.radio(
+    "Módulos",
+    [
+        "Accidente",
+        "Atestado completo",
+        "Informe municipal",
+        "Parte de servicio",
+        "Anomalía",
+        "Asistente sancionador",
+    ],
+)
+
+st.title("🚓 Policía IA - Policía Local de Poio")
+st.write(
+    "App web operativa para ordenador y móvil, con redacción policial, dictado por voz y asistente sancionador con bases PDF."
+)
+
+if not api_key:
+    st.info("Introduce tu API key en la barra lateral para empezar.")
+    st.stop()
+
+if pagina == "Accidente":
+    pagina_accidente(api_key)
+elif pagina == "Atestado completo":
+    pagina_atestado(api_key)
+elif pagina == "Informe municipal":
+    pagina_informe_municipal(api_key)
+elif pagina == "Parte de servicio":
+    pagina_parte_servicio(api_key)
+elif pagina == "Anomalía":
+    pagina_anomalia(api_key)
+elif pagina == "Asistente sancionador":
+    pagina_sancionador(api_key)
