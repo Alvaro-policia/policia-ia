@@ -1,4 +1,4 @@
 streamlit
 openai
-pyperclip
 pypdf
+audio-recorder-streamlit
