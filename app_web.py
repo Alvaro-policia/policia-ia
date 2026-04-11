@@ -771,7 +771,6 @@ def pagina_sancionador(api_key: str):
             "Tráfico / DGT",
             "Seguridad ciudadana LO 4/2015",
             "Bienestar animal Galicia",
-            "Ordenanzas municipales",
         ],
     )
 
