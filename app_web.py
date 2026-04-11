@@ -1,9 +1,10 @@
-import osimport pyperclip
+import os
 import json
 from datetime import datetime
 from typing import Optional
 
 import streamlit as st
+import pyperclip
 from openai import OpenAI
 
 
