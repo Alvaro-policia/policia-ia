@@ -392,23 +392,50 @@ PROMPT_ATESTADO_EXPOSICION = (
     "- En casos de hurto de cartera o similares, debes incluir que se informa al compareciente de la conveniencia de proceder a la anulación de las tarjetas bancarias a la mayor brevedad posible, a fin de evitar un posible uso fraudulento de las mismas.\n"
     "- Si no existe lugar concreto de los hechos, puedes indicar que no procede inspección ocular.\n\n"
 
+    "TIPO DE HECHO DENUNCIADO:\n"
+    "- Si los hechos se refieren a daños, debes integrar, si constan, referencias al estado previo del bien afectado, al momento en que se detectan los daños, a la ausencia de sospechosos y a la inexistencia de cámaras de vigilancia en las inmediaciones.\n"
+    "- Si los hechos se refieren a hurto o sustracción, debes integrar, si constan, los efectos sustraídos, la imposibilidad de concretar el momento exacto y la conveniencia de anular tarjetas bancarias si las hubiere.\n"
+    "- Debes desarrollar el relato con lenguaje técnico aunque la información sea escasa, sin inventar datos.\n"
+    "- Puedes cerrar la exposición con fórmulas como 'sin que se aporten más datos de interés en este momento'.\n\n"
+    
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
 PROMPT_ATESTADO_INSPECCION = (
     "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
-    "Debes redactar una INSPECCIÓN OCULAR para atestado, con lenguaje técnico, descriptivo y objetivo.\n"
-    "Usa párrafos que comiencen por 'Que...'.\n"
-    "No incluir interpretaciones concluyentes ni manifestaciones del alertante salvo referencia mínima imprescindible.\n"
-    "Describir únicamente lo observado.\n"
-    "Si existen daños en puerta, cerradura, bombín, marco, ventanas o accesos, descríbelos con precisión material.\n"
-    "Usa fórmulas prudentes como 'compatible con un posible acceso no autorizado'.\n"
-    "Si se indica reportaje fotográfico, inclúyelo expresamente.\n"
-    "No mezclar la inspección ocular con diligencias posteriores ni comparecencias.\n\n"
-    + BLOQUE_TIEMPO_PRESENTE
-    + "\n"
-    + TRATAMIENTO_PERSONAS_GENERAL
-    + "\n"
+
+    "Debes redactar una INSPECCIÓN OCULAR para atestado, en castellano, con lenguaje técnico, objetivo, descriptivo y estrictamente policial.\n"
+    "Debe estructurarse en párrafos que comiencen por 'Que...'.\n"
+    "No debes incluir encabezados tipo ficha como fecha, hora, lugar o agentes.\n"
+    "No debes incluir valoraciones jurídicas ni conclusiones.\n"
+    "No debes mezclar la inspección ocular con la comparecencia inicial o con diligencias posteriores.\n\n"
+
+    + BLOQUE_TIEMPO_PRESENTE + "\n"
+    + TRATAMIENTO_PERSONAS_GENERAL + "\n"
+
+    "OBJETO DE LA INSPECCIÓN:\n"
+    "- Debes describir únicamente lo observado por los agentes en el lugar.\n"
+    "- Debes detallar accesos, daños, distribución, estado del lugar y elementos relevantes si constan.\n"
+    "- No debes inventar elementos no facilitados.\n\n"
+
+    "DAÑOS Y ELEMENTOS MATERIALES:\n"
+    "- Si existen daños en puertas, ventanas, cerraduras, cristales, marcos, persianas, accesos u otros elementos, descríbelos con precisión material.\n"
+    "- Debes usar fórmulas técnicas y prudentes.\n"
+    "- En supuestos de daños, puedes utilizar expresiones como 'siendo dicho daño compatible con la acción de un objeto contundente' si así consta en los datos.\n"
+    "- No debes utilizar expresiones como 'acceso no autorizado' salvo que realmente conste o encaje con los hechos denunciados.\n\n"
+
+    "CÁMARAS Y ELEMENTOS DE INTERÉS:\n"
+    "- Debes indicar la existencia o inexistencia de cámaras de vigilancia en las inmediaciones si consta.\n"
+    "- Debes indicar si se localizan o no objetos relacionados con los daños o hechos observados, si consta.\n\n"
+
+    "REPORTAJE FOTOGRÁFICO:\n"
+    "- Si se indica, debes incluir expresamente que se realiza reportaje fotográfico de los daños o del lugar, quedando a disposición para su incorporación a las diligencias.\n\n"
+
+    "CALIDAD DE REDACCIÓN POLICIAL:\n"
+    "- La redacción debe ser limpia, objetiva y sin frases superfluas.\n"
+    "- No debes cerrar con fórmulas como 'se concluye la inspección ocular' o similares.\n"
+    "- Debes limitarte a describir lo observado de forma profesional.\n\n"
+
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
@@ -600,6 +627,12 @@ CAMPOS_ANOMALIA = [
 # COMPONENTES UI
 # =========================================================
 
+def boton_volver_movil():
+    if st.session_state.get("ultimo_modo_patrulla", False):
+        if st.button("⬅️ Volver a módulos", key=f"volver_{st.session_state.get('pagina_movil', 'modulos')}"):
+            st.session_state["pagina_movil"] = "Inicio"
+            st.rerun()
+
 def boton_copiar_web(texto: str, clave: str):
     texto_js = json.dumps(texto)
     html = f"""
@@ -641,7 +674,17 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
     for campo in campos:
         clave = f"{key_prefix}_{campo}"
 
-        if campo in opciones_select:
+        # 📅 Fecha con calendario
+        if campo.lower() == "fecha":
+            valor_fecha = st.date_input(
+                campo,
+                value=datetime.today(),
+                key=f"widget_{clave}"
+            )
+            valor = valor_fecha.strftime("%d/%m/%Y")
+
+        # 🔽 Selectores
+        elif campo in opciones_select:
             valor_actual = st.session_state.get(clave, "")
             opciones = opciones_select[campo]
             indice = opciones.index(valor_actual) if valor_actual in opciones else 0
@@ -652,6 +695,8 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
                 index=indice,
                 key=f"widget_{clave}",
             )
+
+        # ✏️ Texto libre
         else:
             valor = st.text_area(
                 campo,
@@ -840,6 +885,7 @@ def cabecera_modulo(titulo: str, icono: str):
 
 def pagina_accidente(api_key: str):
     cabecera_modulo("Informe técnico de accidente", "🚗")
+    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_accidente")
     campos_accidente = CAMPOS_ACCIDENTE
 
@@ -866,6 +912,7 @@ def pagina_accidente(api_key: str):
 
 def pagina_atestado(api_key: str):
     cabecera_modulo("Atestado completo", "📄")
+    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_atestado")
     campos_atestado = CAMPOS_ATESTADO_COMPLETO
 
@@ -894,6 +941,7 @@ def pagina_atestado(api_key: str):
 
 def pagina_informe_municipal(api_key: str):
     cabecera_modulo("Informe municipal", "🏛️")
+    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_municipal")
     campos_municipal = CAMPOS_INFORME_MUNICIPAL
 
@@ -919,6 +967,7 @@ def pagina_informe_municipal(api_key: str):
 
 def pagina_parte_servicio(api_key: str):
     cabecera_modulo("Parte de servicio", "📝")
+    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_servicio")
     campos_servicio = CAMPOS_PARTE_SERVICIO
 
@@ -944,6 +993,7 @@ def pagina_parte_servicio(api_key: str):
 
 def pagina_anomalia(api_key: str):
     cabecera_modulo("Anomalía", "⚠️")
+    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_anomalia")
     campos_anomalia = CAMPOS_ANOMALIA
 
@@ -1054,6 +1104,7 @@ def respuesta_dgt_frecuente(caso: str) -> str:
 
 def pagina_sancionador(api_key: str):
     cabecera_modulo("Asistente sancionador", "⚖️")
+    boton_volver_movil()
 
     tipo = st.selectbox(
         "Materia",
@@ -1183,6 +1234,38 @@ def pagina_sancionador(api_key: str):
     if st.session_state.get("resultado_sancionador"):
         mostrar_resultado(st.session_state["resultado_sancionador"], st.session_state.get("datos_sancionador", {}), "sancionador")
 
+def selector_modulo_movil() -> str:
+    st.markdown("### Módulos")
+    col1, col2 = st.columns(2)
+    col3, col4 = st.columns(2)
+    col5, col6 = st.columns(2)
+
+    if "pagina_movil" not in st.session_state:
+        st.session_state["pagina_movil"] = "Accidente"
+
+    with col1:
+        if st.button("🚗\nAccidente", key="movil_accidente"):
+            st.session_state["pagina_movil"] = "Accidente"
+    with col2:
+        if st.button("📄\nAtestado completo", key="movil_atestado"):
+            st.session_state["pagina_movil"] = "Atestado completo"
+
+    with col3:
+        if st.button("🏛️\nInforme municipal", key="movil_municipal"):
+            st.session_state["pagina_movil"] = "Informe municipal"
+    with col4:
+        if st.button("📝\nParte de servicio", key="movil_servicio"):
+            st.session_state["pagina_movil"] = "Parte de servicio"
+
+    with col5:
+        if st.button("⚠️\nAnomalía", key="movil_anomalia"):
+            st.session_state["pagina_movil"] = "Anomalía"
+    with col6:
+        if st.button("⚖️\nSancionador", key="movil_sancionador"):
+            st.session_state["pagina_movil"] = "Asistente sancionador"
+
+    return st.session_state["pagina_movil"]
+
 
 # =========================================================
 # SIDEBAR / APP PRINCIPAL
@@ -1192,6 +1275,14 @@ st.sidebar.title("Policía IA")
 st.sidebar.caption("Versión web para ordenador y móvil")
 modo_patrulla = st.sidebar.toggle("Modo patrulla / móvil", value=True)
 
+if "ultimo_modo_patrulla" not in st.session_state:
+    st.session_state["ultimo_modo_patrulla"] = modo_patrulla
+
+if modo_patrulla != st.session_state["ultimo_modo_patrulla"]:
+    if modo_patrulla:
+        st.session_state["pagina_movil"] = "Inicio"
+    st.session_state["ultimo_modo_patrulla"] = modo_patrulla
+
 if modo_patrulla:
     st.sidebar.success("Modo patrulla activo")
     st.markdown(
@@ -1199,12 +1290,13 @@ if modo_patrulla:
         <style>
         .stButton > button {
             width: 100%;
-            min-height: 62px;
+            min-height: 78px;
             font-size: 20px;
             font-weight: 700;
-            border-radius: 16px;
-            margin-top: 4px;
-            margin-bottom: 4px;
+            border-radius: 18px;
+            margin-top: 6px;
+            margin-bottom: 6px;
+            white-space: pre-line;
         }
         textarea {
             font-size: 18px !important;
@@ -1215,7 +1307,7 @@ if modo_patrulla:
         }
         .stSelectbox div[data-baseweb="select"] > div {
             font-size: 18px !important;
-            min-height: 54px;
+            min-height: 56px;
         }
         label, .stMarkdown, .stCaption {
             font-size: 17px !important;
@@ -1237,17 +1329,61 @@ api_key = st.sidebar.text_input(
     help="Pega aquí tu clave. No se guarda fuera de tu sesión.",
 )
 
-pagina = st.sidebar.radio(
-    "Módulos",
-    [
-        "Accidente",
-        "Atestado completo",
-        "Informe municipal",
-        "Parte de servicio",
-        "Anomalía",
-        "Asistente sancionador",
-    ],
-)
+modulos = [
+    "Accidente",
+    "Atestado completo",
+    "Informe municipal",
+    "Parte de servicio",
+    "Anomalía",
+    "Asistente sancionador",
+]
+
+# Inicialización de estado
+if "pagina_movil" not in st.session_state:
+    st.session_state["pagina_movil"] = "Inicio"
+
+if "ultimo_modo_patrulla" not in st.session_state:
+    st.session_state["ultimo_modo_patrulla"] = modo_patrulla
+
+# Detectar cambio de modo
+if modo_patrulla != st.session_state["ultimo_modo_patrulla"]:
+    if modo_patrulla:
+        st.session_state["pagina_movil"] = "Inicio"
+    st.session_state["ultimo_modo_patrulla"] = modo_patrulla
+
+# Navegación
+if modo_patrulla:
+    st.sidebar.markdown("### Navegación rápida")
+
+    if st.sidebar.button("🏠 Inicio móvil", key="inicio_movil"):
+        st.session_state["pagina_movil"] = "Inicio"
+
+    if st.session_state["pagina_movil"] == "Inicio":
+        pagina = selector_modulo_movil()
+    else:
+        pagina = st.session_state["pagina_movil"]
+else:
+    pagina = st.sidebar.radio("Módulos", modulos)
+
+st.title("🚓 Policía IA - Policía Local de Poio")
+st.write("App web operativa para ordenador y móvil, con redacción policial, dictado a campos y asistente sancionador simplificado.")
+
+if not api_key:
+    st.info("Introduce tu API key en la barra lateral para empezar.")
+    st.stop()
+
+if pagina == "Accidente":
+    pagina_accidente(api_key)
+elif pagina == "Atestado completo":
+    pagina_atestado(api_key)
+elif pagina == "Informe municipal":
+    pagina_informe_municipal(api_key)
+elif pagina == "Parte de servicio":
+    pagina_parte_servicio(api_key)
+elif pagina == "Anomalía":
+    pagina_anomalia(api_key)
+elif pagina == "Asistente sancionador":
+    pagina_sancionador(api_key)
 
 st.title("🚓 Policía IA - Policía Local de Poio")
 st.write("App web operativa para ordenador y móvil, con redacción policial, dictado a campos y asistente sancionador simplificado.")
