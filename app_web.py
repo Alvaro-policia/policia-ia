@@ -348,7 +348,6 @@ PROMPT_ACCIDENTE = (
 
     + REGLAS_COMUNES_NO_INVENTAR
 )
-)
 
 PROMPT_ATESTADO_EXPOSICION = (
     "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
