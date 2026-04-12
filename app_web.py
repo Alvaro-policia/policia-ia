@@ -866,12 +866,6 @@ def selector_modo_redaccion(clave: str, modulo: str) -> str:
         index=0,
         key=f"{clave}_{modulo}",
     )
-    return st.selectbox(
-        "Modo de redacción",
-        ["Técnico", "Ampliado"],
-        index=0,
-        key=clave,
-    )
 
 
 def cabecera_modulo(titulo: str, icono: str):
