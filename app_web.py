@@ -892,7 +892,7 @@ def cabecera_modulo(titulo: str, icono: str):
 def pagina_accidente(api_key: str):
     cabecera_modulo("Informe técnico de accidente", "🚗")
     boton_volver_movil()
-    modo_redaccion = selector_modo_redaccion("modo_accidente")
+    modo_redaccion = selector_modo_redaccion("modo_accidente", "accidente")
     campos_accidente = CAMPOS_ACCIDENTE
 
     bloque_dictado_a_campos(api_key, "accidente", "Informe técnico de accidente", campos_accidente)
@@ -919,7 +919,7 @@ def pagina_accidente(api_key: str):
 def pagina_atestado(api_key: str):
     cabecera_modulo("Atestado completo", "📄")
     boton_volver_movil()
-    modo_redaccion = selector_modo_redaccion("modo_atestado")
+    modo_redaccion = selector_modo_redaccion("modo_atestado", "atestado")
     campos_atestado = CAMPOS_ATESTADO_COMPLETO
 
     bloque_dictado_a_campos(api_key, "atestado", "Atestado completo", campos_atestado)
@@ -948,7 +948,7 @@ def pagina_atestado(api_key: str):
 def pagina_informe_municipal(api_key: str):
     cabecera_modulo("Informe municipal", "🏛️")
     boton_volver_movil()
-    modo_redaccion = selector_modo_redaccion("modo_municipal")
+    modo_redaccion = selector_modo_redaccion("modo_municipal", "municipal")
     campos_municipal = CAMPOS_INFORME_MUNICIPAL
 
     bloque_dictado_a_campos(api_key, "municipal", "Informe municipal", campos_municipal)
@@ -1000,7 +1000,7 @@ def pagina_parte_servicio(api_key: str):
 def pagina_anomalia(api_key: str):
     cabecera_modulo("Anomalía", "⚠️")
     boton_volver_movil()
-    modo_redaccion = selector_modo_redaccion("modo_anomalia")
+    modo_redaccion = selector_modo_redaccion("modo_anomalia", "anomalia")
     campos_anomalia = CAMPOS_ANOMALIA
 
     bloque_dictado_a_campos(api_key, "anomalia", "Anomalía", campos_anomalia)
