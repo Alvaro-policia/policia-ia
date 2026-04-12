@@ -66,26 +66,60 @@ def capitalizar_si_corresponde(campo: str, valor: str) -> str:
         return valor
 
     campos_sensibles = {
-        "vehículo a",
-        "vehículo b",
         "agentes actuantes (nip)",
         "agentes",
         "agentes actuantes",
+        "indicativo policial",
+        "vehículo a - matrícula",
+        "vehículo b - matrícula",
+        "vehículo c - matrícula",
         "prueba de alcoholemia (indicar resultado o 'no procede')",
         "prueba de drogas (indicar resultado o 'no procede')",
     }
 
-    if campo.lower() in campos_sensibles:
+    if campo.lower() in campos_sensibles or "dni" in campo.lower() or "teléfono" in campo.lower():
         return valor
-
-    if "matrícula" in campo.lower():
-        return valor.upper()
 
     return valor[0].upper() + valor[1:] if valor else valor
 
 
 def normalizar_datos(diccionario: dict) -> dict:
     return {k: capitalizar_si_corresponde(k, v) for k, v in diccionario.items()}
+
+
+def ajustar_datos_accidente_por_tipo(datos: dict) -> dict:
+    tipo = (datos.get("Tipo de accidente", "") or "").strip().lower()
+
+    if tipo == "simple":
+        campos_a_vaciar = [
+            "Vehículo B - matrícula",
+            "Vehículo B - marca",
+            "Vehículo B - modelo",
+            "Vehículo B - color",
+            "Conductor vehículo B",
+            "DNI conductor vehículo B",
+            "Teléfono conductor vehículo B",
+            "Pasajeros vehículo B (indicar posición)",
+            "DNI pasajeros vehículo B",
+            "Teléfono pasajeros vehículo B",
+            "Vehículo C - matrícula",
+            "Vehículo C - marca",
+            "Vehículo C - modelo",
+            "Vehículo C - color",
+            "Conductor vehículo C",
+            "DNI conductor vehículo C",
+            "Teléfono conductor vehículo C",
+            "Pasajeros vehículo C (indicar posición)",
+            "DNI pasajeros vehículo C",
+            "Teléfono pasajeros vehículo C",
+            "Más implicados (si hubiere)",
+            "DNI más implicados",
+            "Teléfono más implicados",
+        ]
+        for campo in campos_a_vaciar:
+            datos[campo] = ""
+
+    return datos
 
 
 def construir_bloque_usuario(datos: dict) -> str:
@@ -117,7 +151,7 @@ def generar_texto_con_ia(api_key: str, prompt_sistema: str, datos_usuario: str) 
 def transcribir_audio_con_openai(api_key: str, audio_bytes: bytes) -> str:
     client = get_client(api_key)
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
 
@@ -127,7 +161,10 @@ def transcribir_audio_con_openai(api_key: str, audio_bytes: bytes) -> str:
                 model="gpt-4o-mini-transcribe",
                 file=audio_file,
             )
-        return getattr(transcripcion, "text", "") or ""
+        texto = getattr(transcripcion, "text", "") or ""
+        return texto.strip()
+    except Exception:
+        return ""
     finally:
         try:
             os.remove(tmp_path)
@@ -201,9 +238,8 @@ RUTA_LEY_ANIMAL = os.path.join(RUTA_DOCS, "ley_4_2017_bienestar_animal.pdf")
 def obtener_instruccion_modo_redaccion(modo_redaccion: str) -> str:
     if modo_redaccion == "Ampliado":
         return (
-            "Redacta de forma detallada, desarrollando las actuaciones policiales, la descripción del lugar, "
-            "la dinámica y los daños observados, manteniendo un lenguaje técnico policial. "
-            "NO inventes datos. Si un dato no consta, omítelo del texto o déjalo en blanco si se trata de un campo."
+            "Redacta de forma detallada, desarrollando las actuaciones policiales, la descripción del lugar, la dinámica y los daños observados, "
+            "manteniendo un lenguaje técnico policial. NO inventes datos. Si un dato no consta, omítelo del texto o déjalo en blanco si se trata de un campo."
         )
 
     return (
@@ -221,6 +257,13 @@ REGLAS_COMUNES_NO_INVENTAR = (
     "Si un dato no consta, no lo completes ni lo deduzcas. Omítelo del texto o déjalo en blanco si procede."
 )
 
+BLOQUE_TIEMPO_PRESENTE = (
+    "TIEMPO VERBAL:\n"
+    "- Toda la redacción debe realizarse en tiempo presente narrativo policial.\n"
+    "- Ejemplos correctos: 'se recibe aviso', 'se personan los agentes', 'se observa', 'se realiza', 'donde ocurre el siniestro'.\n"
+    "- No utilices pasado en ningún caso.\n"
+)
+
 TRATAMIENTO_PERSONAS_GENERAL = (
     "TRATAMIENTO DE PERSONAS:\n"
     "- En la PRIMERA mención de cada persona física que no sea agente debes indicar 'D.' o 'Dña.' seguido del nombre completo, y añadir DNI y teléfono si constan.\n"
@@ -232,7 +275,7 @@ TRATAMIENTO_PERSONAS_GENERAL = (
 TRATAMIENTO_PERSONAS_MUNICIPAL = (
     "TRATAMIENTO DE PERSONAS:\n"
     "- Todas las personas físicas deben figurar como 'D.' o 'Dña.' seguido del nombre completo.\n"
-    "- NO se debe incluir en ningún caso DNI ni teléfono.\n"
+    "- NO se debe incluir en ningún caso DNI ni teléfono en el texto final del informe municipal.\n"
     "- Esta omisión es obligatoria por motivos de protección de datos.\n"
     "- Los agentes deben identificarse exclusivamente por su NIP.\n"
 )
@@ -245,14 +288,48 @@ PROMPT_ACCIDENTE = (
     "Debe integrar hora del aviso y hora de personación si constan.\n"
     "No uses subtítulos como 'Conclusión:'.\n"
     "No atribuyas la dinámica literalmente a lo que dicen los conductores; basa la reconstrucción en datos objetivos facilitados.\n"
-    "Describe vehículo A y B con formato técnico.\n"
-    "Asocia conductor A con vehículo A y conductor B con vehículo B.\n"
-    "Si hay reportaje fotográfico y consta que sí, menciónalo.\n"
-    "Si hay alcoholemia o drogas y constan, intégralo conforme al artículo 14 del Real Decreto Legislativo 6/2015.\n"
     "La conclusión debe empezar por 'Que a la vista de todo lo expuesto, se concluye que...'.\n"
     "Finaliza exactamente con: 'Y para que así conste, se extiende el presente informe técnico policial, que se emite en base a la inspección ocular, manifestaciones recabadas y análisis de las circunstancias concurrentes, quedando sometido a cualquier otro mejor fundado.'\n\n"
+    + BLOQUE_TIEMPO_PRESENTE
+    + "\n"
     + TRATAMIENTO_PERSONAS_GENERAL
     + "\n"
+    + "INTERVENCIÓN POLICIAL:\n"
+    + "- La llegada de los agentes debe redactarse con la fórmula: 'los agentes con NIP XXXX y NIP XXXX, uniformados reglamentariamente, se personan en el lugar del accidente en vehículo oficial rotulado bajo el indicativo policial XXXX'.\n"
+    + "- Si no se facilita el indicativo, omítelo sin inventarlo.\n"
+    + "- La referencia a los agentes debe aparecer preferentemente en el primer párrafo.\n\n"
+    + "TIPO DE ACCIDENTE:\n"
+    + "- Debes atender al campo 'Tipo de accidente'.\n"
+    + "- Si el accidente es SIMPLE, solo debes usar vehículo A y las personas asociadas a vehículo A, además de peatones o testigos si constan.\n"
+    + "- Si el accidente es COMPLEJO, debes estructurar los implicados por vehículo: vehículo A, vehículo B, vehículo C y después más implicados si los hubiere.\n"
+    + "- No menciones vehículos, conductores o pasajeros cuyos campos estén vacíos.\n"
+    + "- Debes identificar los vehículos con matrícula, marca, modelo y color si constan.\n"
+    + "- Debes integrar las condiciones meteorológicas y el sentido de la vía según numeración si constan.\n"
+    + "- El sentido ascendente o descendente se refiere a la numeración de la vía, normalmente en el sentido de marcha del vehículo A, y no a la inclinación o pendiente de la calzada.\n\n"
+    + "PASAJEROS:\n"
+    + "- Debes indicar la posición de cada pasajero dentro del vehículo si consta (delantero derecho, trasero izquierdo, etc.).\n"
+    + "- Debes integrar dicha posición en la redacción de forma técnica.\n"
+    + "- Ejemplo: 'ocupando el mismo en calidad de pasajero, en el asiento delantero derecho, D....'\n"
+    + "- Si la posición no consta, no la inventes.\n\n"
+    + "IDENTIFICACIÓN DE VEHÍCULOS:\n"
+    + "- Cada vehículo debe describirse con matrícula, marca, modelo y color si constan.\n"
+    + "- Ejemplo: 'vehículo A, marca Seat, modelo León, color rojo, matrícula XXXX'.\n\n"
+    + "PRUEBAS DE ALCOHOLEMIA Y DROGAS:\n"
+    + "- Si se realizan pruebas, debes redactarlo con lenguaje técnico conforme al Real Decreto Legislativo 6/2015.\n"
+    + "- Debes indicar que, al tratarse de un accidente de circulación, se informa a las partes implicadas de la realización de las pruebas reglamentarias.\n"
+    + "- Debes indicar los resultados en mg/l si constan.\n"
+    + "- No uses lenguaje coloquial ni simplificado.\n\n"
+    + "RECONSTRUCCIÓN DE LA DINÁMICA:\n"
+    + "- La conclusión debe incluir una reconstrucción técnica del accidente.\n"
+    + "- Debes basarte en daños, manifestaciones y configuración de la vía.\n"
+    + "- No debes limitarte a decir 'conducción negligente'.\n"
+    + "- Debes describir la maniobra concreta que origina el accidente, trayectorias y puntos de impacto.\n\n"
+    + "ESTILO TÉCNICO PROFESIONAL:\n"
+    + "- Debes utilizar un estilo de redacción equivalente a informes técnicos reales de Policía Local.\n"
+    + "- Evita expresiones poco técnicas como 'quien viajaba' o 'se desplazan'.\n"
+    + "- Utiliza fórmulas como 'ocupando el mismo en calidad de pasajero'.\n"
+    + "- La reconstrucción del accidente debe ser detallada, clara y basada en daños, manifestaciones y configuración de la vía.\n"
+    + "- La conclusión debe explicar la maniobra concreta que origina el siniestro.\n\n"
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
@@ -266,9 +343,11 @@ PROMPT_ATESTADO_EXPOSICION = (
     "No hacer valoraciones jurídicas ni conclusiones.\n"
     "Al inicio, quien llama debe figurar como alertante o requirente, no como denunciante.\n"
     "Cuando hables de los agentes, utiliza la fórmula 'los agentes con NIP...'.\n"
-    "Si se facilita indicativo, integra la fórmula 'uniformados reglamentariamente, se desplazan en vehículo oficial rotulado bajo el indicativo ...'.\n"
+    "Si se facilita indicativo, integra la fórmula 'uniformados reglamentariamente, se personan en el lugar en vehículo oficial rotulado bajo el indicativo policial ...'.\n"
     "Nunca digas que el requirente es trasladado en vehículo oficial; si procede, indica que se desplaza posteriormente por sus propios medios a dependencias policiales.\n"
     "Si se habla de daños en puerta o cerradura, la valoración detallada se reserva principalmente para la inspección ocular.\n\n"
+    + BLOQUE_TIEMPO_PRESENTE
+    + "\n"
     + TRATAMIENTO_PERSONAS_GENERAL
     + "\n"
     + REGLAS_COMUNES_NO_INVENTAR
@@ -284,6 +363,8 @@ PROMPT_ATESTADO_INSPECCION = (
     "Usa fórmulas prudentes como 'compatible con un posible acceso no autorizado'.\n"
     "Si se indica reportaje fotográfico, inclúyelo expresamente.\n"
     "No mezclar la inspección ocular con diligencias posteriores ni comparecencias.\n\n"
+    + BLOQUE_TIEMPO_PRESENTE
+    + "\n"
     + TRATAMIENTO_PERSONAS_GENERAL
     + "\n"
     + REGLAS_COMUNES_NO_INVENTAR
@@ -291,8 +372,9 @@ PROMPT_ATESTADO_INSPECCION = (
 
 PROMPT_INFORME_MUNICIPAL = (
     "Eres un asistente de redacción policial para la Policía Local de Poio. Debes redactar un INFORME MUNICIPAL en castellano, con tono formal, objetivo, técnico y administrativo. "
-    "Integra hora del aviso y hora de personación si constan. "
-    "Debe ser apto para conflictos entre particulares, incidencias en inmuebles, requerimientos vecinales o incidencias municipales.\n\n"
+    "Integra hora del aviso y hora de personación si constan. Debe ser apto para conflictos entre particulares, incidencias en inmuebles, requerimientos vecinales o incidencias municipales.\n\n"
+    + BLOQUE_TIEMPO_PRESENTE
+    + "\n"
     + TRATAMIENTO_PERSONAS_MUNICIPAL
     + "\n"
     + REGLAS_COMUNES_NO_INVENTAR
@@ -301,6 +383,8 @@ PROMPT_INFORME_MUNICIPAL = (
 PROMPT_PARTE_SERVICIO = (
     "Eres un asistente de redacción policial para la Policía Local de Poio. Debes redactar un PARTE DE SERVICIO interno, en castellano, con tono formal, claro, objetivo y operativo. "
     "Integra hora del aviso y hora de personación si constan.\n\n"
+    + BLOQUE_TIEMPO_PRESENTE
+    + "\n"
     + TRATAMIENTO_PERSONAS_GENERAL
     + "\n"
     + REGLAS_COMUNES_NO_INVENTAR
@@ -309,6 +393,8 @@ PROMPT_PARTE_SERVICIO = (
 PROMPT_ANOMALIA = (
     "Eres un asistente de redacción policial para la Policía Local de Poio. Debes redactar una ANOMALÍA o comunicación breve de incidencia en vía pública o elementos urbanos, en castellano, con tono claro, breve, técnico y operativo. "
     "Integra hora del aviso y hora de personación si constan.\n\n"
+    + BLOQUE_TIEMPO_PRESENTE
+    + "\n"
     + TRATAMIENTO_PERSONAS_GENERAL
     + "\n"
     + REGLAS_COMUNES_NO_INVENTAR
@@ -325,15 +411,53 @@ CAMPOS_ACCIDENTE = [
     "Hora de personación",
     "Lugar",
     "Agentes actuantes (NIP)",
-    "Vehículo A",
-    "Conductor A",
-    "Pasajeros vehículo A",
-    "Vehículo B",
-    "Conductor B",
-    "Pasajeros vehículo B",
-    "Peatones implicados",
-    "Testigos",
+    "Indicativo policial",
+    "Tipo de accidente",
+    "Alertante o requirente",
+    "DNI del alertante o requirente",
+    "Teléfono del alertante o requirente",
+    "Vehículo A - matrícula",
+    "Vehículo A - marca",
+    "Vehículo A - modelo",
+    "Vehículo A - color",
+    "Conductor vehículo A",
+    "DNI conductor vehículo A",
+    "Teléfono conductor vehículo A",
+    "Pasajeros vehículo A (indicar posición)",
+    "DNI pasajeros vehículo A",
+    "Teléfono pasajeros vehículo A",
+    "Vehículo B - matrícula",
+    "Vehículo B - marca",
+    "Vehículo B - modelo",
+    "Vehículo B - color",
+    "Conductor vehículo B",
+    "DNI conductor vehículo B",
+    "Teléfono conductor vehículo B",
+    "Pasajeros vehículo B (indicar posición)",
+    "DNI pasajeros vehículo B",
+    "Teléfono pasajeros vehículo B",
+    "Vehículo C - matrícula",
+    "Vehículo C - marca",
+    "Vehículo C - modelo",
+    "Vehículo C - color",
+    "Conductor vehículo C",
+    "DNI conductor vehículo C",
+    "Teléfono conductor vehículo C",
+    "Pasajeros vehículo C (indicar posición)",
+    "DNI pasajeros vehículo C",
+    "Teléfono pasajeros vehículo C",
+    "Más implicados (si hubiere)",
+    "DNI más implicados",
+    "Teléfono más implicados",
+    "Peatones (si los hubiere)",
+    "DNI peatones",
+    "Teléfono peatones",
+    "Testigos (si los hubiere)",
+    "DNI testigos",
+    "Teléfono testigos",
     "Descripción de la vía",
+    "Sentido de la vía según numeración (vehículo A)",
+    "Condiciones meteorológicas",
     "Daños observados",
     "Relato técnico del accidente",
     "Actuaciones realizadas",
@@ -354,6 +478,9 @@ CAMPOS_ATESTADO_COMPLETO = [
     "Alertante o requirente",
     "DNI del alertante o requirente",
     "Teléfono del alertante o requirente",
+    "Personas implicadas",
+    "DNI personas implicadas",
+    "Teléfono personas implicadas",
     "Motivo del aviso",
     "Relato general de los hechos",
     "Actuaciones realizadas",
@@ -371,8 +498,13 @@ CAMPOS_INFORME_MUNICIPAL = [
     "Hora de personación",
     "Lugar",
     "Agentes",
-    "Asunto",
+    "Alertante o requirente",
+    "DNI del alertante o requirente",
+    "Teléfono del alertante o requirente",
     "Partes implicadas",
+    "DNI partes implicadas",
+    "Teléfono partes implicadas",
+    "Asunto",
     "Versión de la parte A",
     "Versión de la parte B",
     "Observaciones de los agentes",
@@ -388,8 +520,13 @@ CAMPOS_PARTE_SERVICIO = [
     "Hora de personación",
     "Lugar",
     "Agentes",
-    "Asunto o motivo",
+    "Alertante o requirente",
+    "DNI del alertante o requirente",
+    "Teléfono del alertante o requirente",
     "Personas implicadas o comparecientes",
+    "DNI personas implicadas o comparecientes",
+    "Teléfono personas implicadas o comparecientes",
+    "Asunto o motivo",
     "Relato libre de lo sucedido o de la gestión realizada",
     "Actuaciones policiales realizadas",
     "Documentación o imágenes adjuntas",
@@ -402,72 +539,18 @@ CAMPOS_ANOMALIA = [
     "Hora de personación",
     "Lugar exacto",
     "Agentes",
+    "Alertante o requirente",
+    "DNI del alertante o requirente",
+    "Teléfono del alertante o requirente",
+    "Personas implicadas",
+    "DNI personas implicadas",
+    "Teléfono personas implicadas",
     "Tipo de anomalía",
     "Descripción breve de la incidencia observada",
     "Riesgo o afectación apreciada",
     "Actuaciones realizadas",
     "Servicio o departamento avisado",
     "Observaciones adicionales",
-]
-
-CAMPOS_PATRULLA_ACCIDENTE = [
-    "Fecha",
-    "Hora del aviso",
-    "Hora de personación",
-    "Lugar",
-    "Agentes actuantes (NIP)",
-    "Vehículo A",
-    "Vehículo B",
-    "Daños observados",
-    "Relato técnico del accidente",
-    "Conclusión técnica",
-]
-
-CAMPOS_PATRULLA_ATESTADO = [
-    "Fecha",
-    "Hora",
-    "Hora de personación",
-    "Lugar",
-    "Agentes actuantes (NIP)",
-    "Indicativo policial",
-    "Motivo del aviso",
-    "Relato general de los hechos",
-    "Daños observados",
-]
-
-CAMPOS_PATRULLA_MUNICIPAL = [
-    "Fecha",
-    "Hora",
-    "Hora de personación",
-    "Lugar",
-    "Agentes",
-    "Asunto",
-    "Partes implicadas",
-    "Observaciones de los agentes",
-    "Conclusión o resultado",
-]
-
-CAMPOS_PATRULLA_SERVICIO = [
-    "Fecha",
-    "Hora",
-    "Hora de personación",
-    "Lugar",
-    "Agentes",
-    "Asunto o motivo",
-    "Relato libre de lo sucedido o de la gestión realizada",
-    "Actuaciones policiales realizadas",
-]
-
-CAMPOS_PATRULLA_ANOMALIA = [
-    "Fecha",
-    "Hora",
-    "Hora de personación",
-    "Lugar exacto",
-    "Agentes",
-    "Tipo de anomalía",
-    "Descripción breve de la incidencia observada",
-    "Actuaciones realizadas",
-    "Servicio o departamento avisado",
 ]
 
 
@@ -505,15 +588,39 @@ def boton_copiar_web(texto: str, clave: str):
 
 def render_form_fields(campos: list[str], key_prefix: str) -> dict:
     datos = {}
+
+    opciones_select = {
+        "Tipo de accidente": ["", "Simple", "Complejo"],
+        "Sentido de la vía según numeración (vehículo A)": ["", "Ascendente", "Descendente"],
+        "Condiciones meteorológicas": ["", "Despejado", "Soleado", "Nublado", "Lluvia", "Niebla", "Viento", "Otra"],
+        "Reportaje fotográfico (sí/no)": ["", "Sí", "No"],
+    }
+
     for campo in campos:
-        valor = st.text_area(
-            campo,
-            value=st.session_state.get(f"{key_prefix}_{campo}", ""),
-            key=f"widget_{key_prefix}_{campo}",
-            height=80,
-        )
-        st.session_state[f"{key_prefix}_{campo}"] = valor
+        clave = f"{key_prefix}_{campo}"
+
+        if campo in opciones_select:
+            valor_actual = st.session_state.get(clave, "")
+            opciones = opciones_select[campo]
+            indice = opciones.index(valor_actual) if valor_actual in opciones else 0
+
+            valor = st.selectbox(
+                campo,
+                opciones,
+                index=indice,
+                key=f"widget_{clave}",
+            )
+        else:
+            valor = st.text_area(
+                campo,
+                value=st.session_state.get(clave, ""),
+                key=f"widget_{clave}",
+                height=80,
+            )
+
+        st.session_state[clave] = valor
         datos[campo] = valor
+
     return normalizar_datos(datos)
 
 
@@ -615,18 +722,30 @@ def bloque_dictado_a_campos(api_key: str, key_prefix: str, tipo_documento: str, 
         neutral_color="#1976d2",
         icon_name="microphone",
         icon_size="2x",
+        pause_threshold=4.0,
+        sample_rate=41000,
         key=f"audio_campos_{key_prefix}",
     )
 
+    if audio_bytes:
+        st.session_state[f"audio_campos_{key_prefix}"] = audio_bytes
+
+    audio_guardado = st.session_state.get(f"audio_campos_{key_prefix}")
     texto_guardado = st.session_state.get(f"dictado_campos_{key_prefix}", "")
 
-    if audio_bytes:
-        if st.button("Transcribir dictado", key=f"transcribir_campos_{key_prefix}"):
+    if st.button("Transcribir dictado", key=f"transcribir_campos_{key_prefix}"):
+        if not audio_guardado:
+            st.warning("Primero graba un audio.")
+        else:
             with st.spinner("Transcribiendo audio..."):
-                texto = transcribir_audio_con_openai(api_key, audio_bytes)
-            st.session_state[f"dictado_campos_{key_prefix}"] = texto
-            texto_guardado = texto
-            st.success("Dictado transcrito.")
+                texto = transcribir_audio_con_openai(api_key, audio_guardado)
+
+            if texto.strip():
+                st.session_state[f"dictado_campos_{key_prefix}"] = texto
+                texto_guardado = texto
+                st.success("Dictado transcrito.")
+            else:
+                st.warning("No se pudo transcribir el audio o no se detectó voz clara.")
 
     texto_guardado = st.text_area(
         "Texto dictado",
@@ -662,17 +781,29 @@ def selector_modo_redaccion(clave: str) -> str:
     )
 
 
+def cabecera_modulo(titulo: str, icono: str):
+    st.markdown(
+        f'''
+        <div class="bloque-modulo">
+            <div style="font-size:30px; font-weight:700;">{icono} {titulo}</div>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+
 # =========================================================
 # PÁGINAS DOCUMENTALES
 # =========================================================
 
 def pagina_accidente(api_key: str):
-    st.header("Informe técnico de accidente")
+    cabecera_modulo("Informe técnico de accidente", "🚗")
     modo_redaccion = selector_modo_redaccion("modo_accidente")
-    campos_accidente = CAMPOS_PATRULLA_ACCIDENTE if modo_patrulla else CAMPOS_ACCIDENTE
+    campos_accidente = CAMPOS_ACCIDENTE
 
     bloque_dictado_a_campos(api_key, "accidente", "Informe técnico de accidente", campos_accidente)
     datos = render_form_fields(campos_accidente, "accidente")
+    datos = ajustar_datos_accidente_por_tipo(datos)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -692,9 +823,9 @@ def pagina_accidente(api_key: str):
 
 
 def pagina_atestado(api_key: str):
-    st.header("Atestado completo")
+    cabecera_modulo("Atestado completo", "📄")
     modo_redaccion = selector_modo_redaccion("modo_atestado")
-    campos_atestado = CAMPOS_PATRULLA_ATESTADO if modo_patrulla else CAMPOS_ATESTADO_COMPLETO
+    campos_atestado = CAMPOS_ATESTADO_COMPLETO
 
     bloque_dictado_a_campos(api_key, "atestado", "Atestado completo", campos_atestado)
     datos = render_form_fields(campos_atestado, "atestado")
@@ -720,9 +851,9 @@ def pagina_atestado(api_key: str):
 
 
 def pagina_informe_municipal(api_key: str):
-    st.header("Informe municipal")
+    cabecera_modulo("Informe municipal", "🏛️")
     modo_redaccion = selector_modo_redaccion("modo_municipal")
-    campos_municipal = CAMPOS_PATRULLA_MUNICIPAL if modo_patrulla else CAMPOS_INFORME_MUNICIPAL
+    campos_municipal = CAMPOS_INFORME_MUNICIPAL
 
     bloque_dictado_a_campos(api_key, "municipal", "Informe municipal", campos_municipal)
     datos = render_form_fields(campos_municipal, "municipal")
@@ -745,9 +876,9 @@ def pagina_informe_municipal(api_key: str):
 
 
 def pagina_parte_servicio(api_key: str):
-    st.header("Parte de servicio")
+    cabecera_modulo("Parte de servicio", "📝")
     modo_redaccion = selector_modo_redaccion("modo_servicio")
-    campos_servicio = CAMPOS_PATRULLA_SERVICIO if modo_patrulla else CAMPOS_PARTE_SERVICIO
+    campos_servicio = CAMPOS_PARTE_SERVICIO
 
     bloque_dictado_a_campos(api_key, "servicio", "Parte de servicio", campos_servicio)
     datos = render_form_fields(campos_servicio, "servicio")
@@ -770,9 +901,9 @@ def pagina_parte_servicio(api_key: str):
 
 
 def pagina_anomalia(api_key: str):
-    st.header("Anomalía")
+    cabecera_modulo("Anomalía", "⚠️")
     modo_redaccion = selector_modo_redaccion("modo_anomalia")
-    campos_anomalia = CAMPOS_PATRULLA_ANOMALIA if modo_patrulla else CAMPOS_ANOMALIA
+    campos_anomalia = CAMPOS_ANOMALIA
 
     bloque_dictado_a_campos(api_key, "anomalia", "Anomalía", campos_anomalia)
     datos = render_form_fields(campos_anomalia, "anomalia")
@@ -880,7 +1011,7 @@ def respuesta_dgt_frecuente(caso: str) -> str:
 
 
 def pagina_sancionador(api_key: str):
-    st.header("Asistente sancionador")
+    cabecera_modulo("Asistente sancionador", "⚖️")
 
     tipo = st.selectbox(
         "Materia",
@@ -973,8 +1104,7 @@ def pagina_sancionador(api_key: str):
                 "RESPONSABLE:\n"
                 "HECHO DENUNCIADO:\n"
                 "OBSERVACIONES:\n\n"
-                "En 'RESPONSABLE' debe figurar siempre el responsable de la infracción. "
-                "Cuando un dato no proceda, indica 'No procede' o 'No consta'. No inventes datos."
+                "En 'RESPONSABLE' debe figurar siempre el responsable de la infracción. Cuando un dato no proceda, indica 'No procede' o 'No consta'. No inventes datos."
             )
             entrada = f"SUPUESTO:\n{caso}\n\nBASE LEGAL:\n{texto_base[:24000] if texto_base else 'No consta base cargada.'}"
             with st.spinner("Analizando supuesto..."):
@@ -1000,8 +1130,7 @@ def pagina_sancionador(api_key: str):
                 "RESPONSABLE:\n"
                 "HECHO DENUNCIADO:\n"
                 "OBSERVACIONES:\n\n"
-                "En 'RESPONSABLE' debe figurar siempre el responsable de la infracción. "
-                "Cuando un dato no proceda, indica 'No procede' o 'No consta'. No inventes datos."
+                "En 'RESPONSABLE' debe figurar siempre el responsable de la infracción. Cuando un dato no proceda, indica 'No procede' o 'No consta'. No inventes datos."
             )
             entrada = f"SUPUESTO:\n{caso}\n\nBASE LEGAL:\n{texto_base[:24000] if texto_base else 'No consta base cargada.'}"
             with st.spinner("Analizando supuesto..."):
@@ -1028,16 +1157,32 @@ if modo_patrulla:
         <style>
         .stButton > button {
             width: 100%;
-            min-height: 56px;
-            font-size: 18px;
-            font-weight: 600;
-            border-radius: 12px;
+            min-height: 62px;
+            font-size: 20px;
+            font-weight: 700;
+            border-radius: 16px;
+            margin-top: 4px;
+            margin-bottom: 4px;
         }
         textarea {
-            font-size: 17px !important;
+            font-size: 18px !important;
+            line-height: 1.5 !important;
         }
         .stTextInput input {
+            font-size: 18px !important;
+        }
+        .stSelectbox div[data-baseweb="select"] > div {
+            font-size: 18px !important;
+            min-height: 54px;
+        }
+        label, .stMarkdown, .stCaption {
             font-size: 17px !important;
+        }
+        .bloque-modulo {
+            border: 1px solid rgba(128,128,128,0.25);
+            border-radius: 18px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
         }
         </style>
         """,
