@@ -859,7 +859,13 @@ def bloque_dictado_a_campos(api_key: str, key_prefix: str, tipo_documento: str, 
             st.rerun()
 
 
-def selector_modo_redaccion(clave: str) -> str:
+def selector_modo_redaccion(clave: str, modulo: str) -> str:
+    return st.selectbox(
+        "Modo de redacción",
+        ["Técnico", "Ampliado"],
+        index=0,
+        key=f"{clave}_{modulo}",
+    )
     return st.selectbox(
         "Modo de redacción",
         ["Técnico", "Ampliado"],
@@ -968,7 +974,7 @@ def pagina_informe_municipal(api_key: str):
 def pagina_parte_servicio(api_key: str):
     cabecera_modulo("Parte de servicio", "📝")
     boton_volver_movil()
-    modo_redaccion = selector_modo_redaccion("modo_servicio")
+    modo_redaccion = selector_modo_redaccion("modo_servicio", "parte_servicio")
     campos_servicio = CAMPOS_PARTE_SERVICIO
 
     bloque_dictado_a_campos(api_key, "servicio", "Parte de servicio", campos_servicio)
