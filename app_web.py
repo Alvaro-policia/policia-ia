@@ -578,7 +578,7 @@ JSON base esperado:
 {json.dumps(esquema, ensure_ascii=False, indent=2)}
 
 DICTADO:
-"""{texto_dictado}"""
+{texto_dictado}
 """
 
     respuesta = client.chat.completions.create(
