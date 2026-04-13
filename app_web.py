@@ -6,7 +6,6 @@ from datetime import datetime
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
-from pypdf import PdfReader
 from audio_recorder_streamlit import audio_recorder
 
 
@@ -170,65 +169,6 @@ def transcribir_audio_con_openai(api_key: str, audio_bytes: bytes) -> str:
             os.remove(tmp_path)
         except Exception:
             pass
-
-
-# =========================================================
-# PDF / BASES LEGALES
-# =========================================================
-
-@st.cache_data(show_spinner=False)
-def extraer_texto_pdf_path(ruta_pdf: str) -> str:
-    if not ruta_pdf or not os.path.exists(ruta_pdf):
-        return ""
-    try:
-        lector = PdfReader(ruta_pdf)
-        paginas = []
-        for pagina in lector.pages:
-            texto = pagina.extract_text()
-            if texto:
-                paginas.append(texto)
-        return "\n".join(paginas)
-    except Exception:
-        return ""
-
-
-@st.cache_data(show_spinner=False)
-def extraer_texto_pdf_upload(archivo_pdf) -> str:
-    if archivo_pdf is None:
-        return ""
-    try:
-        lector = PdfReader(archivo_pdf)
-        paginas = []
-        for pagina in lector.pages:
-            texto = pagina.extract_text()
-            if texto:
-                paginas.append(texto)
-        return "\n".join(paginas)
-    except Exception:
-        return ""
-
-
-def obtener_texto_base(ruta_local: str, archivo_subido) -> str:
-    texto_local = extraer_texto_pdf_path(ruta_local) if ruta_local else ""
-    texto_subido = extraer_texto_pdf_upload(archivo_subido) if archivo_subido is not None else ""
-    return texto_subido or texto_local
-
-
-def mostrar_estado_base(nombre: str, texto_base: str):
-    if texto_base:
-        st.success(f"Base cargada: {nombre}")
-    else:
-        st.warning(f"No se ha podido cargar la base: {nombre}")
-
-
-# =========================================================
-# RUTAS PDF
-# =========================================================
-
-RUTA_DOCS = "documentos"
-RUTA_CODIFICADO_DGT = os.path.join(RUTA_DOCS, "codificado_dgt.pdf")
-RUTA_LEY_SC = os.path.join(RUTA_DOCS, "ley_organica_4_2015.pdf")
-RUTA_LEY_ANIMAL = os.path.join(RUTA_DOCS, "ley_4_2017_bienestar_animal.pdf")
 
 
 # =========================================================
@@ -469,6 +409,41 @@ PROMPT_ANOMALIA = (
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
+PROMPT_INFORME_JUZGADO = (
+    "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
+
+    "Debes redactar un INFORME AL JUZGADO en castellano, con tono formal, técnico, objetivo y de estilo judicial-policial.\n"
+    "El texto debe redactarse íntegramente en prosa.\n"
+    "Debe estructurarse en párrafos que comiencen por 'Que...'.\n"
+    "Debe redactarse en tiempo presente narrativo policial.\n"
+    "No inventes datos en ningún caso.\n"
+    "Debes reflejar con claridad las gestiones practicadas por los agentes, los domicilios visitados, los intentos realizados, las llamadas efectuadas, las comprobaciones en bases de datos y el resultado obtenido.\n"
+    "Los agentes deben identificarse exclusivamente por su NIP.\n"
+    "Las personas físicas deben figurar como 'D.' o 'Dña.' seguido del nombre completo, añadiendo DNI y teléfono si constan en la primera mención.\n"
+    "En menciones posteriores, no repitas la filiación completa.\n"
+    "La redacción debe ser sobria, clara y apta para su remisión al órgano judicial.\n\n"
+
+    + BLOQUE_TIEMPO_PRESENTE + "\n"
+    + TRATAMIENTO_PERSONAS_GENERAL + "\n"
+
+    "TIPO DE INFORME:\n"
+    "- Debes atender al campo 'Tipo de informe al juzgado'.\n"
+    "- Si el tipo es 'No localización / notificación negativa', debes dejar constancia de las gestiones realizadas para localizar a la persona o practicar la notificación, así como del resultado negativo de dichas gestiones.\n"
+    "- Si el tipo es 'Incumplimiento de localización permanente', debes reflejar las distintas comprobaciones realizadas en el domicilio y la ausencia reiterada de la persona afectada, si así consta.\n\n"
+
+    "CONTENIDO MÍNIMO:\n"
+    "- Debes integrar, si constan, el órgano judicial, el procedimiento o asunto, la identidad de la persona afectada, el domicilio principal, otros domicilios consultados, teléfonos contactados, bases de datos consultadas, fechas y horas de los intentos y resultado de las gestiones.\n"
+    "- Debes describir las gestiones de forma ordenada y cronológica.\n"
+    "- Debes evitar frases coloquiales o imprecisas.\n\n"
+
+    "ESTILO:\n"
+    "- Debes utilizar fórmulas como 'se practican gestiones', 'se realizan comprobaciones', 'se efectúa personación', 'sin resultado positivo', 'no siendo localizada la persona'.\n"
+    "- Debes evitar lenguaje coloquial.\n"
+    "- Puedes cerrar con fórmulas como 'sin que se obtenga resultado positivo' o 'sin que consten más extremos relevantes'.\n\n"
+
+    + REGLAS_COMUNES_NO_INVENTAR
+)
+
 
 # =========================================================
 # CAMPOS
@@ -622,16 +597,36 @@ CAMPOS_ANOMALIA = [
     "Observaciones adicionales",
 ]
 
+CAMPOS_INFORME_JUZGADO = [
+    "Fecha",
+    "Hora",
+    "Hora de personación",
+    "Lugar",
+    "Agentes actuantes (NIP)",
+    "Indicativo policial",
+    "Tipo de informe al juzgado",
+    "Órgano judicial",
+    "Procedimiento / asunto",
+    "Persona afectada",
+    "DNI persona afectada",
+    "Teléfono persona afectada",
+    "Domicilio principal",
+    "Otros domicilios consultados",
+    "Teléfonos contactados",
+    "Bases de datos consultadas",
+    "Número de intentos realizados",
+    "Fechas y horas de los intentos",
+    "Comprobaciones realizadas",
+    "Resultado de las gestiones",
+    "Manifestaciones de terceros (si las hubiere)",
+    "Observaciones adicionales",
+]
+
 
 # =========================================================
 # COMPONENTES UI
 # =========================================================
 
-def boton_volver_movil():
-    if st.session_state.get("ultimo_modo_patrulla", False):
-        if st.button("⬅️ Volver a módulos", key=f"volver_{st.session_state.get('pagina_movil', 'modulos')}"):
-            st.session_state["pagina_movil"] = "Inicio"
-            st.rerun()
 
 def boton_copiar_web(texto: str, clave: str):
     texto_js = json.dumps(texto)
@@ -669,21 +664,69 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
         "Sentido de la vía según numeración (vehículo A)": ["", "Ascendente", "Descendente"],
         "Condiciones meteorológicas": ["", "Despejado", "Soleado", "Nublado", "Lluvia", "Niebla", "Viento", "Otra"],
         "Reportaje fotográfico (sí/no)": ["", "Sí", "No"],
+        "Origen del aviso (teléfono / jefatura)": ["", "Teléfono", "Jefatura"],
+        "Tipo de anomalía": [
+            "",
+            "Alcantarilla",
+            "Cable caído",
+            "Farola dañada",
+            "Socavón",
+            "Señalización dañada",
+            "Árbol o ramas",
+            "Bache",
+            "Fuga de agua",
+            "Obstáculo en calzada",
+            "Otra",
+        ],
+        "Tipo de informe al juzgado": [
+            "",
+            "No localización / notificación negativa",
+            "Incumplimiento de localización permanente",
+        ],
     }
 
     for campo in campos:
         clave = f"{key_prefix}_{campo}"
+        clave_widget = f"widget_{clave}"
 
-        # 📅 Fecha con calendario
         if campo.lower() == "fecha":
-            valor_fecha = st.date_input(
-                campo,
-                value=datetime.today(),
-                key=f"widget_{clave}"
-            )
-            valor = valor_fecha.strftime("%d/%m/%Y")
+            valor_actual = st.session_state.get(clave, "")
+            fecha_inicial = datetime.today().date()
 
-        # 🔽 Selectores
+            if isinstance(valor_actual, str) and valor_actual.strip():
+                texto = valor_actual.strip()
+                for formato in ("%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y"):
+                    try:
+                        fecha_inicial = datetime.strptime(texto, formato).date()
+                        break
+                    except ValueError:
+                        pass
+            elif hasattr(valor_actual, "year") and hasattr(valor_actual, "month") and hasattr(valor_actual, "day"):
+                fecha_inicial = valor_actual
+
+            valor_widget = st.date_input(
+                campo,
+                value=fecha_inicial,
+                key=clave_widget,
+                format="DD/MM/YYYY",
+            )
+
+            if isinstance(valor_widget, str):
+                texto = valor_widget.strip()
+                fecha_final = None
+                for formato in ("%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y"):
+                    try:
+                        fecha_final = datetime.strptime(texto, formato).date()
+                        break
+                    except ValueError:
+                        pass
+                if fecha_final is None:
+                    fecha_final = datetime.today().date()
+            else:
+                fecha_final = valor_widget
+
+            valor = fecha_final.strftime("%d/%m/%Y")
+
         elif campo in opciones_select:
             valor_actual = st.session_state.get(clave, "")
             opciones = opciones_select[campo]
@@ -693,15 +736,14 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
                 campo,
                 opciones,
                 index=indice,
-                key=f"widget_{clave}",
+                key=clave_widget,
             )
 
-        # ✏️ Texto libre
         else:
             valor = st.text_area(
                 campo,
                 value=st.session_state.get(clave, ""),
-                key=f"widget_{clave}",
+                key=clave_widget,
                 height=80,
             )
 
@@ -712,10 +754,41 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
 
 
 def aplicar_datos_a_session_state(datos_extraidos: dict, key_prefix: str):
-    for campo, valor in datos_extraidos.items():
-        st.session_state[f"{key_prefix}_{campo}"] = valor
-        st.session_state[f"widget_{key_prefix}_{campo}"] = valor
+    if not isinstance(datos_extraidos, dict):
+        return
 
+    for campo, valor in datos_extraidos.items():
+        clave_base = f"{key_prefix}_{campo}"
+        clave_widget = f"widget_{clave_base}"
+
+        valor = "" if valor is None else str(valor).strip()
+
+        # Guardar valor base
+        st.session_state[clave_base] = valor
+
+        # Guardar valor también en el widget para que Streamlit lo muestre
+        if campo.lower() == "fecha":
+            if valor:
+                fecha_convertida = None
+                for formato in ("%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y"):
+                    try:
+                        fecha_convertida = datetime.strptime(valor, formato).date()
+                        break
+                    except ValueError:
+                        pass
+
+                if fecha_convertida is not None:
+                    st.session_state[clave_widget] = fecha_convertida
+                else:
+                    # Si viene mal la fecha, dejamos la base en texto y no forzamos el widget
+                    if clave_widget in st.session_state:
+                        del st.session_state[clave_widget]
+            else:
+                if clave_widget in st.session_state:
+                    del st.session_state[clave_widget]
+
+        else:
+            st.session_state[clave_widget] = valor
 
 def mostrar_resultado(texto: str, datos: dict, prefijo: str):
     st.subheader("Resultado")
@@ -761,12 +834,12 @@ CAMPOS A RELLENAR:
 
 INSTRUCCIONES:
 - Devuelve EXCLUSIVAMENTE un objeto JSON válido.
+- No escribas texto antes ni después del JSON.
 - Usa exactamente como claves los nombres de los campos proporcionados.
 - Si un dato no aparece claro, deja su valor como cadena vacía "".
 - No inventes datos.
 - Si el dictado menciona agentes, horas, lugar, daños o motivo del aviso, colócalos en el campo más adecuado.
 - En los campos narrativos amplios, resume fielmente el dictado con lenguaje claro y útil para redacción policial.
-- No añadas explicaciones fuera del JSON.
 
 JSON base esperado:
 {json.dumps(esquema, ensure_ascii=False, indent=2)}
@@ -775,27 +848,37 @@ DICTADO:
 {texto_dictado}
 """
 
-    respuesta = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0.1,
-        messages=[
-            {"role": "system", "content": "Devuelve solo JSON válido y no inventes datos."},
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    contenido = respuesta.choices[0].message.content or "{}"
-
     try:
+        respuesta = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.1,
+            messages=[
+                {"role": "system", "content": "Devuelve solo JSON válido, sin texto adicional y sin inventar datos."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+
+        contenido = (respuesta.choices[0].message.content or "").strip()
+
+        # Limpiar posibles fences ```json ... ```
+        if contenido.startswith("```"):
+            contenido = contenido.strip("`")
+            contenido = contenido.replace("json", "", 1).strip()
+
         datos = json.loads(contenido)
+
         if not isinstance(datos, dict):
             return esquema
+
         resultado = {}
         for campo in campos_objetivo:
             valor = datos.get(campo, "")
             resultado[campo] = str(valor).strip() if valor is not None else ""
+
         return resultado
-    except Exception:
+
+    except Exception as e:
+        st.warning(f"No se pudieron extraer campos desde el dictado. Error: {e}")
         return esquema
 
 
@@ -854,17 +937,22 @@ def bloque_dictado_a_campos(api_key: str, key_prefix: str, tipo_documento: str, 
                     texto_dictado=texto_guardado,
                     campos_objetivo=campos_objetivo,
                 )
+
+            st.write("DEBUG CAMPOS EXTRAÍDOS:", datos_extraidos)
+
             aplicar_datos_a_session_state(datos_extraidos, key_prefix)
+
             st.success("Campos rellenados automáticamente. Revisa y corrige lo que haga falta.")
             st.rerun()
 
 
 def selector_modo_redaccion(clave: str, modulo: str) -> str:
+    pagina_actual = st.session_state.get("pagina_movil", "normal")
     return st.selectbox(
         "Modo de redacción",
         ["Técnico", "Ampliado"],
         index=0,
-        key=f"{clave}_{modulo}",
+        key=f"{clave}_{modulo}_{pagina_actual}",
     )
 
 
@@ -885,7 +973,6 @@ def cabecera_modulo(titulo: str, icono: str):
 
 def pagina_accidente(api_key: str):
     cabecera_modulo("Informe técnico de accidente", "🚗")
-    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_accidente", "accidente")
     campos_accidente = CAMPOS_ACCIDENTE
 
@@ -894,10 +981,12 @@ def pagina_accidente(api_key: str):
     datos = ajustar_datos_accidente_por_tipo(datos)
 
     col1, col2 = st.columns(2)
+
     with col1:
-        generar = st.button("Generar informe técnico")
+        generar = st.button("Generar informe de accidente", key="btn_generar_accidente")
+
     with col2:
-        regenerar = st.button("Regenerar informe")
+        regenerar = st.button("Regenerar informe de accidente", key="btn_regenerar_accidente")
 
     if generar or regenerar:
         prompt_final = PROMPT_ACCIDENTE + "\n\n" + obtener_instruccion_modo_redaccion(modo_redaccion)
@@ -907,12 +996,15 @@ def pagina_accidente(api_key: str):
         st.session_state["datos_accidente"] = datos
 
     if st.session_state.get("resultado_accidente"):
-        mostrar_resultado(st.session_state["resultado_accidente"], st.session_state.get("datos_accidente", {}), "accidente")
+        mostrar_resultado(
+            st.session_state["resultado_accidente"],
+            st.session_state.get("datos_accidente", {}),
+            "accidente"
+        )
 
 
 def pagina_atestado(api_key: str):
     cabecera_modulo("Atestado completo", "📄")
-    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_atestado", "atestado")
     campos_atestado = CAMPOS_ATESTADO_COMPLETO
 
@@ -920,10 +1012,12 @@ def pagina_atestado(api_key: str):
     datos = render_form_fields(campos_atestado, "atestado")
 
     col1, col2 = st.columns(2)
+
     with col1:
-        generar = st.button("Generar atestado completo")
+        generar = st.button("Generar atestado", key="btn_generar_atestado")
+
     with col2:
-        regenerar = st.button("Regenerar atestado")
+        regenerar = st.button("Regenerar atestado", key="btn_regenerar_atestado")
 
     if generar or regenerar:
         bloque = construir_bloque_usuario(datos)
@@ -941,7 +1035,6 @@ def pagina_atestado(api_key: str):
 
 def pagina_informe_municipal(api_key: str):
     cabecera_modulo("Informe municipal", "🏛️")
-    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_municipal", "municipal")
     campos_municipal = CAMPOS_INFORME_MUNICIPAL
 
@@ -949,10 +1042,12 @@ def pagina_informe_municipal(api_key: str):
     datos = render_form_fields(campos_municipal, "municipal")
 
     col1, col2 = st.columns(2)
+
     with col1:
-        generar = st.button("Generar informe municipal")
+        generar = st.button("Generar informe municipal", key="btn_generar_municipal")
+
     with col2:
-        regenerar = st.button("Regenerar informe municipal")
+        regenerar = st.button("Regenerar informe municipal", key="btn_regenerar_municipal")
 
     if generar or regenerar:
         prompt_final = PROMPT_INFORME_MUNICIPAL + "\n\n" + obtener_instruccion_modo_redaccion(modo_redaccion)
@@ -967,7 +1062,6 @@ def pagina_informe_municipal(api_key: str):
 
 def pagina_parte_servicio(api_key: str):
     cabecera_modulo("Parte de servicio", "📝")
-    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_servicio", "parte_servicio")
     campos_servicio = CAMPOS_PARTE_SERVICIO
 
@@ -975,10 +1069,12 @@ def pagina_parte_servicio(api_key: str):
     datos = render_form_fields(campos_servicio, "servicio")
 
     col1, col2 = st.columns(2)
+
     with col1:
-        generar = st.button("Generar parte de servicio")
+        generar = st.button("Generar parte de servicio", key="btn_generar_servicio")
+
     with col2:
-        regenerar = st.button("Regenerar parte de servicio")
+        regenerar = st.button("Regenerar parte de servicio", key="btn_regenerar_servicio")
 
     if generar or regenerar:
         prompt_final = PROMPT_PARTE_SERVICIO + "\n\n" + obtener_instruccion_modo_redaccion(modo_redaccion)
@@ -993,7 +1089,6 @@ def pagina_parte_servicio(api_key: str):
 
 def pagina_anomalia(api_key: str):
     cabecera_modulo("Anomalía", "⚠️")
-    boton_volver_movil()
     modo_redaccion = selector_modo_redaccion("modo_anomalia", "anomalia")
     campos_anomalia = CAMPOS_ANOMALIA
 
@@ -1001,10 +1096,12 @@ def pagina_anomalia(api_key: str):
     datos = render_form_fields(campos_anomalia, "anomalia")
 
     col1, col2 = st.columns(2)
+
     with col1:
-        generar = st.button("Generar anomalía")
+        generar = st.button("Generar anomalía", key="btn_generar_anomalia")
+
     with col2:
-        regenerar = st.button("Regenerar anomalía")
+        regenerar = st.button("Regenerar anomalía", key="btn_regenerar_anomalia")
 
     if generar or regenerar:
         prompt_final = PROMPT_ANOMALIA + "\n\n" + obtener_instruccion_modo_redaccion(modo_redaccion)
@@ -1016,255 +1113,74 @@ def pagina_anomalia(api_key: str):
     if st.session_state.get("resultado_anomalia"):
         mostrar_resultado(st.session_state["resultado_anomalia"], st.session_state.get("datos_anomalia", {}), "anomalia")
 
+def pagina_informe_juzgado(api_key: str):
+    cabecera_modulo("Informes al juzgado", "⚖️")
+    modo_redaccion = selector_modo_redaccion("modo_juzgado", "juzgado")
+    campos_juzgado = CAMPOS_INFORME_JUZGADO
 
-# =========================================================
-# SANCIONADOR
-# =========================================================
+    bloque_dictado_a_campos(api_key, "juzgado", "Informe al juzgado", campos_juzgado)
+    datos = render_form_fields(campos_juzgado, "juzgado")
 
-def respuesta_dgt_frecuente(caso: str) -> str:
-    texto = (caso or "").lower()
+    col1, col2 = st.columns(2)
 
-    if "sin seguro" in texto or "seguro obligatorio" in texto:
-        return (
-            "NORMA: SOA\n"
-            "ARTÍCULO SANCIONADOR: 002\n"
-            "APARTADO / LETRA: 1 / Opc. 5H\n"
-            "TEXTO LITERAL DEL PRECEPTO: Circular el vehículo reseñado sin que conste que su propietario tenga suscrito y mantenga en vigor un contrato de seguro que cubra la responsabilidad civil derivada de su circulación.\n"
-            "CALIFICACIÓN: Muy grave\n"
-            "PUNTOS: No procede\n"
-            "CUANTÍA: 1500€\n"
-            "CUANTÍA REDUCIDA: 750€\n"
-            "RESPONSABLE: Titular\n"
-            "HECHO DENUNCIADO: Circular con vehículo sin seguro obligatorio en vigor.\n"
-            "OBSERVACIONES: Causa de posible inmovilización y depósito del vehículo."
-        )
+    with col1:
+        generar = st.button("Generar informe al juzgado", key="btn_generar_juzgado")
 
-    if "sin itv" in texto or "itv caducada" in texto or "vehiculo sin itv" in texto or "vehículo sin itv" in texto:
-        return (
-            "NORMA: VEH\n"
-            "ARTÍCULO SANCIONADOR: 010\n"
-            "APARTADO / LETRA: 1 / Opc. 5A\n"
-            "TEXTO LITERAL DEL PRECEPTO: No haberse sometido el vehículo reseñado a la inspección técnica periódica establecida reglamentariamente.\n"
-            "CALIFICACIÓN: Grave\n"
-            "PUNTOS: No procede\n"
-            "CUANTÍA: 200€\n"
-            "CUANTÍA REDUCIDA: 100€\n"
-            "RESPONSABLE: Titular\n"
-            "HECHO DENUNCIADO: No haber sometido el vehículo a la inspección técnica periódica reglamentaria.\n"
-            "OBSERVACIONES: ITV."
-        )
+    with col2:
+        regenerar = st.button("Regenerar informe al juzgado", key="btn_regenerar_juzgado")
 
-    if "stop" in texto:
-        return (
-            "NORMA: CIR\n"
-            "ARTÍCULO SANCIONADOR: 145\n"
-            "APARTADO / LETRA: 2-A / Opc. 5B\n"
-            "TEXTO LITERAL DEL PRECEPTO: No detenerse en el lugar prescrito por la señal de stop (R-2).\n"
-            "CALIFICACIÓN: Grave\n"
-            "PUNTOS: 4\n"
-            "CUANTÍA: 200€\n"
-            "CUANTÍA REDUCIDA: 100€\n"
-            "RESPONSABLE: Conductor\n"
-            "HECHO DENUNCIADO: No detenerse ante señal de stop.\n"
-            "OBSERVACIONES: Obligación de detenerse en línea de detención o antes de la intersección y ceder el paso."
-        )
+    if generar or regenerar:
+        prompt_final = PROMPT_INFORME_JUZGADO + "\n\n" + obtener_instruccion_modo_redaccion(modo_redaccion)
 
-    if "carga y descarga" in texto:
-        return (
-            "NORMA: CIR\n"
-            "ARTÍCULO SANCIONADOR: 091\n"
-            "APARTADO / LETRA: 2 / Opc. 5G\n"
-            "TEXTO LITERAL DEL PRECEPTO: Estacionar un vehículo en zona reservada a carga y descarga durante las horas de utilización.\n"
-            "CALIFICACIÓN: Grave\n"
-            "PUNTOS: No procede\n"
-            "CUANTÍA: 200€\n"
-            "CUANTÍA REDUCIDA: 100€\n"
-            "RESPONSABLE: Titular o arrendatario, salvo conductor identificado\n"
-            "HECHO DENUNCIADO: Estacionar en zona reservada a carga y descarga en horas de utilización.\n"
-            "OBSERVACIONES: Si se identifica conductor en la denuncia, será el responsable."
-        )
-
-    if "negligente" in texto or "conduccion negligente" in texto or "conducción negligente" in texto:
-        return (
-            "NORMA: CIR\n"
-            "ARTÍCULO SANCIONADOR: 003\n"
-            "APARTADO / LETRA: 1 / Opc. 5C\n"
-            "TEXTO LITERAL DEL PRECEPTO: Conducir sin la diligencia, precaución y no distracción necesarios para evitar todo daño propio o ajeno.\n"
-            "CALIFICACIÓN: Grave\n"
-            "PUNTOS: No procede\n"
-            "CUANTÍA: 200€\n"
-            "CUANTÍA REDUCIDA: 100€\n"
-            "RESPONSABLE: Conductor\n"
-            "HECHO DENUNCIADO: Conducir de forma negligente, debiendo detallarse la conducta.\n"
-            "OBSERVACIONES: Debe describirse la conducta concreta."
-        )
-
-    return ""
-
-
-def pagina_sancionador(api_key: str):
-    cabecera_modulo("Asistente sancionador", "⚖️")
-    boton_volver_movil()
-
-    tipo = st.selectbox(
-        "Materia",
-        [
-            "Tráfico / DGT",
-            "Seguridad ciudadana LO 4/2015",
-            "Bienestar animal Galicia",
-        ],
-    )
-
-    texto_base = ""
-    archivo_pdf = None
-
-    if tipo == "Tráfico / DGT":
-        st.subheader("Base: Codificado DGT")
-        archivo_pdf = st.file_uploader(
-            "Sube el PDF del codificado DGT si quieres sustituir el de la app",
-            type=["pdf"],
-            key="codificado_dgt_pdf",
-        )
-        texto_base = obtener_texto_base(RUTA_CODIFICADO_DGT, archivo_pdf)
-        mostrar_estado_base("Codificado DGT", texto_base)
-
-    elif tipo == "Seguridad ciudadana LO 4/2015":
-        st.subheader("Base: Ley Orgánica 4/2015")
-        archivo_pdf = st.file_uploader(
-            "Sube el PDF de seguridad ciudadana si quieres sustituir el de la app",
-            type=["pdf"],
-            key="ley_sc_pdf",
-        )
-        texto_base = obtener_texto_base(RUTA_LEY_SC, archivo_pdf)
-        mostrar_estado_base("LO 4/2015", texto_base)
-
-    elif tipo == "Bienestar animal Galicia":
-        st.subheader("Base: Ley 4/2017 Galicia")
-        archivo_pdf = st.file_uploader(
-            "Sube el PDF de bienestar animal si quieres sustituir el de la app",
-            type=["pdf"],
-            key="ley_animal_pdf",
-        )
-        texto_base = obtener_texto_base(RUTA_LEY_ANIMAL, archivo_pdf)
-        mostrar_estado_base("Ley 4/2017 Galicia", texto_base)
-
-    caso = st.text_area("Describe el caso", height=140)
-
-    if st.button("Analizar con IA"):
-        if tipo == "Tráfico / DGT":
-            frecuente = respuesta_dgt_frecuente(caso)
-            if frecuente:
-                st.session_state["resultado_sancionador"] = frecuente
-                st.session_state["datos_sancionador"] = {"tipo": tipo, "caso": caso}
-            else:
-                prompt = (
-                    "Eres un asistente experto en el codificado de infracciones de tráfico DGT en España.\n\n"
-                    "Devuelve SIEMPRE en este formato:\n"
-                    "NORMA:\n"
-                    "ARTÍCULO SANCIONADOR:\n"
-                    "APARTADO / LETRA:\n"
-                    "TEXTO LITERAL DEL PRECEPTO:\n"
-                    "CALIFICACIÓN:\n"
-                    "PUNTOS:\n"
-                    "CUANTÍA:\n"
-                    "CUANTÍA REDUCIDA:\n"
-                    "RESPONSABLE:\n"
-                    "HECHO DENUNCIADO:\n"
-                    "OBSERVACIONES:\n\n"
-                    "Debes usar prioritariamente la base DGT aportada. No inventes datos. Si no encuentras encaje claro, dilo expresamente."
-                )
-                entrada = f"SUPUESTO:\n{caso}\n\nBASE NORMATIVA DGT:\n{texto_base[:20000] if texto_base else 'No consta base cargada.'}"
-                with st.spinner("Analizando supuesto..."):
-                    texto = generar_texto_con_ia(api_key, prompt, entrada)
-                st.session_state["resultado_sancionador"] = texto
-                st.session_state["datos_sancionador"] = {"tipo": tipo, "caso": caso}
-
-        elif tipo == "Seguridad ciudadana LO 4/2015":
-            prompt = (
-                "Eres un asistente experto en la Ley Orgánica 4/2015 de protección de la seguridad ciudadana.\n\n"
-                "Debes distinguir entre artículos materiales y artículos sancionadores.\n"
-                "Debes buscar primero la conducta en los artículos 35, 36 o 37, y la cuantía en el artículo 39.\n"
-                "No tomes como artículo principal uno que solo describa principios generales o actuaciones policiales.\n\n"
-                "Devuelve SIEMPRE en este formato:\n"
-                "NORMA:\n"
-                "ARTÍCULO SANCIONADOR:\n"
-                "APARTADO / LETRA:\n"
-                "TEXTO LITERAL DEL PRECEPTO:\n"
-                "CALIFICACIÓN:\n"
-                "PUNTOS:\n"
-                "CUANTÍA:\n"
-                "CUANTÍA REDUCIDA:\n"
-                "RESPONSABLE:\n"
-                "HECHO DENUNCIADO:\n"
-                "OBSERVACIONES:\n\n"
-                "En 'RESPONSABLE' debe figurar siempre el responsable de la infracción. Cuando un dato no proceda, indica 'No procede' o 'No consta'. No inventes datos."
+        with st.spinner("Generando informe al juzgado..."):
+            texto = generar_texto_con_ia(
+                api_key,
+                prompt_final,
+                construir_bloque_usuario(datos)
             )
-            entrada = f"SUPUESTO:\n{caso}\n\nBASE LEGAL:\n{texto_base[:24000] if texto_base else 'No consta base cargada.'}"
-            with st.spinner("Analizando supuesto..."):
-                texto = generar_texto_con_ia(api_key, prompt, entrada)
-            st.session_state["resultado_sancionador"] = texto
-            st.session_state["datos_sancionador"] = {"tipo": tipo, "caso": caso}
 
-        elif tipo == "Bienestar animal Galicia":
-            prompt = (
-                "Eres un asistente experto en la Ley 4/2017 de Galicia de protección y bienestar animal.\n\n"
-                "Debes distinguir entre artículos que imponen obligaciones materiales y artículos sancionadores.\n"
-                "Debes identificar primero el artículo sancionador correcto, normalmente en los artículos 38, 39 o 40, y después la cuantía en el artículo 41.\n"
-                "No debes devolver como artículo principal el de la obligación material si existe un artículo sancionador específico que tipifique la conducta.\n\n"
-                "Devuelve SIEMPRE en este formato:\n"
-                "NORMA:\n"
-                "ARTÍCULO SANCIONADOR:\n"
-                "APARTADO / LETRA:\n"
-                "TEXTO LITERAL DEL PRECEPTO:\n"
-                "CALIFICACIÓN:\n"
-                "PUNTOS:\n"
-                "CUANTÍA:\n"
-                "CUANTÍA REDUCIDA:\n"
-                "RESPONSABLE:\n"
-                "HECHO DENUNCIADO:\n"
-                "OBSERVACIONES:\n\n"
-                "En 'RESPONSABLE' debe figurar siempre el responsable de la infracción. Cuando un dato no proceda, indica 'No procede' o 'No consta'. No inventes datos."
-            )
-            entrada = f"SUPUESTO:\n{caso}\n\nBASE LEGAL:\n{texto_base[:24000] if texto_base else 'No consta base cargada.'}"
-            with st.spinner("Analizando supuesto..."):
-                texto = generar_texto_con_ia(api_key, prompt, entrada)
-            st.session_state["resultado_sancionador"] = texto
-            st.session_state["datos_sancionador"] = {"tipo": tipo, "caso": caso}
+        st.session_state["resultado_juzgado"] = texto
+        st.session_state["datos_juzgado"] = datos
 
-    if st.session_state.get("resultado_sancionador"):
-        mostrar_resultado(st.session_state["resultado_sancionador"], st.session_state.get("datos_sancionador", {}), "sancionador")
+    if st.session_state.get("resultado_juzgado"):
+        mostrar_resultado(
+            st.session_state["resultado_juzgado"],
+            st.session_state.get("datos_juzgado", {}),
+            "informe_juzgado"
+        )
 
 def selector_modulo_movil() -> str:
-    st.markdown("### Módulos")
-    col1, col2 = st.columns(2)
-    col3, col4 = st.columns(2)
-    col5, col6 = st.columns(2)
+    st.markdown("## 🚓 Modo patrulla")
 
-    if "pagina_movil" not in st.session_state:
-        st.session_state["pagina_movil"] = "Accidente"
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         if st.button("🚗\nAccidente", key="movil_accidente"):
             st.session_state["pagina_movil"] = "Accidente"
+
     with col2:
-        if st.button("📄\nAtestado completo", key="movil_atestado"):
+        if st.button("📄\nAtestado", key="movil_atestado"):
             st.session_state["pagina_movil"] = "Atestado completo"
 
     with col3:
-        if st.button("🏛️\nInforme municipal", key="movil_municipal"):
+        if st.button("🏛️\nMunicipal", key="movil_municipal"):
             st.session_state["pagina_movil"] = "Informe municipal"
+
+    col4, col5, col6 = st.columns(3)
+
     with col4:
-        if st.button("📝\nParte de servicio", key="movil_servicio"):
+        if st.button("📝\nServicio", key="movil_servicio"):
             st.session_state["pagina_movil"] = "Parte de servicio"
 
     with col5:
         if st.button("⚠️\nAnomalía", key="movil_anomalia"):
             st.session_state["pagina_movil"] = "Anomalía"
-    with col6:
-        if st.button("⚖️\nSancionador", key="movil_sancionador"):
-            st.session_state["pagina_movil"] = "Asistente sancionador"
 
-    return st.session_state["pagina_movil"]
+    with col6:
+        if st.button("⚖️\nJuzgado", key="movil_juzgado"):
+            st.session_state["pagina_movil"] = "Informes al juzgado"
+
+    return st.session_state.get("pagina_movil", "Inicio")
 
 
 # =========================================================
@@ -1335,7 +1251,7 @@ modulos = [
     "Informe municipal",
     "Parte de servicio",
     "Anomalía",
-    "Asistente sancionador",
+    "Informes al juzgado",
 ]
 
 # Inicialización de estado
@@ -1355,7 +1271,7 @@ if modo_patrulla != st.session_state["ultimo_modo_patrulla"]:
 if modo_patrulla:
     st.sidebar.markdown("### Navegación rápida")
 
-    if st.sidebar.button("🏠 Inicio móvil", key="inicio_movil"):
+    if st.sidebar.button("🏠 Inicio", key="inicio_movil"):
         st.session_state["pagina_movil"] = "Inicio"
 
     if st.session_state["pagina_movil"] == "Inicio":
@@ -1366,7 +1282,7 @@ else:
     pagina = st.sidebar.radio("Módulos", modulos)
 
 st.title("🚓 Policía IA - Policía Local de Poio")
-st.write("App web operativa para ordenador y móvil, con redacción policial, dictado a campos y asistente sancionador simplificado.")
+st.write("App web operativa para ordenador y móvil, con redacción policial, dictado a campos.")
 
 if not api_key:
     st.info("Introduce tu API key en la barra lateral para empezar.")
@@ -1382,25 +1298,5 @@ elif pagina == "Parte de servicio":
     pagina_parte_servicio(api_key)
 elif pagina == "Anomalía":
     pagina_anomalia(api_key)
-elif pagina == "Asistente sancionador":
-    pagina_sancionador(api_key)
-
-st.title("🚓 Policía IA - Policía Local de Poio")
-st.write("App web operativa para ordenador y móvil, con redacción policial, dictado a campos y asistente sancionador simplificado.")
-
-if not api_key:
-    st.info("Introduce tu API key en la barra lateral para empezar.")
-    st.stop()
-
-if pagina == "Accidente":
-    pagina_accidente(api_key)
-elif pagina == "Atestado completo":
-    pagina_atestado(api_key)
-elif pagina == "Informe municipal":
-    pagina_informe_municipal(api_key)
-elif pagina == "Parte de servicio":
-    pagina_parte_servicio(api_key)
-elif pagina == "Anomalía":
-    pagina_anomalia(api_key)
-elif pagina == "Asistente sancionador":
-    pagina_sancionador(api_key)
+elif pagina == "Informes al juzgado":
+    pagina_informe_juzgado(api_key)
