@@ -8,7 +8,6 @@ from typing import Any
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
-from audio_recorder_streamlit import audio_recorder
 
 
 # =========================================================
@@ -30,6 +29,12 @@ def asegurar_carpeta(nombre_carpeta: str) -> None:
     if not os.path.exists(nombre_carpeta):
         os.makedirs(nombre_carpeta)
 
+def get_reset_version(key_prefix: str) -> int:
+    return st.session_state.get(f"_reset_version_{key_prefix}", 0)
+
+
+def bump_reset_version(key_prefix: str) -> None:
+    st.session_state[f"_reset_version_{key_prefix}"] = get_reset_version(key_prefix) + 1
 
 def guardar_txt(documento: str, prefijo: str) -> str:
     asegurar_carpeta("informes")
@@ -266,7 +271,19 @@ def ajustar_datos_accidente_por_tipo(datos: dict) -> dict:
 
 
 def construir_bloque_usuario(datos: dict) -> str:
-    return "\n".join([f"{k}: {v}" for k, v in datos.items() if str(v).strip()])
+    bloque = []
+
+    for k, v in datos.items():
+        if str(v).strip():
+            bloque.append(f"{k}: {v}")
+
+    # 🔥 AÑADIMOS INTELIGENCIA PARA EL ALERTANTE
+    if datos.get("DNI del alertante o requirente"):
+        bloque.append("Alertante identificado previamente: Sí")
+    else:
+        bloque.append("Alertante identificado previamente: No")
+
+    return "\n".join(bloque)
 
 
 # =========================================================
@@ -289,30 +306,6 @@ def generar_texto_con_ia(api_key: str, prompt_sistema: str, datos_usuario: str) 
         ],
     )
     return respuesta.choices[0].message.content or ""
-
-
-def transcribir_audio_con_openai(api_key: str, audio_bytes: bytes) -> str:
-    client = get_client(api_key)
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
-        tmp.write(audio_bytes)
-        tmp_path = tmp.name
-
-    try:
-        with open(tmp_path, "rb") as audio_file:
-            transcripcion = client.audio.transcriptions.create(
-                model="gpt-4o-mini-transcribe",
-                file=audio_file,
-            )
-        texto = getattr(transcripcion, "text", "") or ""
-        return texto.strip()
-    except Exception:
-        return ""
-    finally:
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
 
 
 # =========================================================
@@ -339,6 +332,19 @@ def obtener_instruccion_modo_redaccion(modo_redaccion: str) -> str:
 REGLAS_COMUNES_NO_INVENTAR = (
     "NO inventes datos en ningún caso. Usa exclusivamente la información facilitada por el usuario. "
     "Si un dato no consta, no lo completes ni lo deduzcas. Omítelo del texto o déjalo en blanco si procede."
+)
+
+BLOQUE_CONTEXTO_JEFATURA = (
+    "CONTEXTO DE ACTUACIÓN:\n"
+    "- Debes atender a los campos 'Origen de la actuación' e 'Intervención presencial en el lugar'.\n"
+    "- El origen puede ser comparecencia en jefatura, llamada/aviso telefónico o actuación de oficio.\n"
+    "- Aunque la actuación se inicie por comparecencia en jefatura, puede existir después intervención presencial en vía pública.\n"
+    "- Debes reflejar correctamente ambas fases si constan: inicio en dependencias y posterior intervención policial en el lugar.\n"
+    "- Si el origen es comparecencia en jefatura y además existe intervención presencial, primero debes reflejar la comparecencia y después la personación de los agentes.\n"
+    "- Si el origen es llamada o aviso telefónico, debes iniciar con fórmulas tipo 'Que se recibe llamada...' o 'Que se recibe aviso...'.\n"
+    "- Si existe intervención presencial en el lugar, debes integrar la fórmula: "
+    "'Que los agentes con NIP XXXX y NIP XXXX, uniformados reglamentariamente, se personan en el lugar en vehículo oficial rotulado bajo el indicativo policial XXXX...'\n"
+    "- No mezclar escenarios de forma incoherente ni inventar actuaciones no facilitadas.\n\n"
 )
 
 BLOQUE_TIEMPO_PRESENTE = (
@@ -453,51 +459,71 @@ PROMPT_ACCIDENTE = (
 PROMPT_ATESTADO_EXPOSICION = (
     "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
 
-    "Debes redactar una EXPOSICIÓN DE HECHOS para atestado, en castellano, con tono policial formal, técnico y cronológico.\n"
-    "Debe estructurarse en párrafos que comiencen por 'Que...'.\n"
-    "Debe reflejar de forma clara y ordenada la actuación policial.\n"
-    "Debe integrar hora del aviso y hora de personación si constan.\n"
-    "No incluir valoraciones jurídicas ni conclusiones.\n"
-    "No incluir manifestaciones literales salvo que se indique expresamente.\n"
-    "No usar subtítulos adicionales.\n\n"
+    "Debes redactar una EXPOSICIÓN DE HECHOS para atestado, con estilo policial real de Jefatura.\n"
+    "El texto debe ir íntegramente en prosa.\n"
+    "NO se permiten listas, guiones ni separaciones artificiales.\n"
+    "Debe poder copiarse directamente a un atestado real.\n\n"
 
-    + BLOQUE_TIEMPO_PRESENTE + "\n"
-    + TRATAMIENTO_PERSONAS_GENERAL + "\n"
+    "REGLA FUNDAMENTAL:\n"
+    "- TODOS los párrafos deben comenzar obligatoriamente por 'Que'.\n"
+    "- Ejemplo: 'Que se recibe aviso...', 'Que se persona...', 'Que D. ... manifiesta...'\n\n"
+
+    "ESTRUCTURA OBLIGATORIA:\n"
+    "- Redacción cronológica completa de los hechos.\n"
+    "- Desde el aviso inicial hasta las gestiones posteriores.\n"
+    "- Debes integrar intervención, desplazamientos, asistencia y seguimiento.\n\n"
+
+    "INICIO:\n"
+    "- Debes comenzar con una fórmula tipo:\n"
+    "  'Que en la Jefatura de la Policía Local de Poio, siendo aproximadamente las XX:XX horas del día XX/XX/XXXX, se recibe aviso...'\n"
+    "- O bien:\n"
+    "  'Que siendo las XX:XX horas del día XX/XX/XXXX, se recibe aviso...'\n\n"
+
+    "DESARROLLO OPERATIVO:\n"
+    "- Debes usar lenguaje real policial:\n"
+    "  'Que se desplaza una patrulla...'\n"
+    "  'Que se inicia búsqueda...'\n"
+    "  'Que se localiza...'\n"
+    "  'Que se persona...'\n"
+    "  'Que posteriormente...'\n"
+    "  'Que a las XX:XX horas...'\n\n"
+
+    "- Puedes incluir coordenadas, indicativos, unidades y medios intervinientes.\n"
+    "- Debes integrar correctamente servicios como 061, Protección Civil o GES.\n\n"
 
     "INTERVENCIÓN POLICIAL:\n"
-    "- Cuando la actuación comienza en dependencias, debes indicar que el compareciente se persona en dependencias policiales.\n"
-    "- Cuando la actuación es en vía pública, debes indicar que se recibe aviso y los agentes se personan.\n"
-    "- Los agentes deben figurar como 'los agentes con NIP XXXX y NIP XXXX'.\n"
-    "- Si se facilita indicativo, integrar la fórmula: 'uniformados reglamentariamente, se personan en vehículo oficial rotulado bajo el indicativo policial XXXX'.\n\n"
+    "- Los agentes deben figurar como:\n"
+    "  'los agentes con NIP XXXX y NIP XXXX'\n"
+    "- Puedes integrarlos dentro del relato sin romper fluidez.\n\n"
 
-    "TRATAMIENTO DEL COMPARECIENTE:\n"
-    "- La persona debe figurar inicialmente como requirente o compareciente, no como denunciante.\n"
-    "- Ejemplo correcto: 'quien comparece como requirente al objeto de poner en conocimiento...'\n\n"
+    "MANIFESTACIONES:\n"
+    "- Deben integrarse dentro del relato.\n"
+    "- Fórmula obligatoria:\n"
+    "  'Que D. ... manifiesta que...'\n"
+    "- Nunca usar 'se observa que'.\n\n"
 
-    "CALIDAD DE REDACCIÓN POLICIAL:\n"
-    "- Debes evitar expresiones coloquiales como 'le han robado', 'sospecha que alguien', etc.\n"
-    "- Debes utilizar fórmulas técnicas como 'manifiesta haber sido víctima de', 'manifiesta la sustracción de', 'no pudiendo concretar el momento exacto'.\n"
-    "- La redacción debe ser limpia, objetiva y sin explicaciones innecesarias.\n"
-    "- Debes evitar redundancias y frases superfluas.\n"
-    "- No debes incluir frases innecesarias como que el compareciente abandona dependencias por sus propios medios.\n\n"
+    "GESTIONES POSTERIORES:\n"
+    "- Debes incluir llamadas, intentos de contacto, ampliaciones de información.\n"
+    "- Ejemplo:\n"
+    "  'Que el día XX/XX/XXXX a las XX:XX horas se contacta...'\n"
+    "  'Que se intenta contactar sin obtener resultado...'\n\n"
 
-    "CONTENIDO DE LOS HECHOS:\n"
-    "- Debes describir los efectos sustraídos o hechos comunicados con precisión.\n"
-    "- Debes recoger la manifestación del compareciente de forma técnica.\n"
-    "- Si no se conoce el lugar exacto de los hechos, debes indicarlo de forma técnica.\n"
-    "- Ejemplo: 'no pudiendo concretar el momento exacto en que se produce la sustracción'.\n\n"
+    "ESTILO:\n"
+    "- Redacción limpia, continua y profesional.\n"
+    "- Sin repeticiones innecesarias de 'Que'.\n"
+    "- Debe fluir como un relato policial real.\n"
+    "- No debe parecer generado por IA.\n\n"
 
-    "ACTUACIÓN POLICIAL:\n"
-    "- Debes reflejar que se recogen las manifestaciones.\n"
-    "- Debes reflejar las gestiones realizadas por los agentes.\n"
-    "- En casos de hurto de cartera o similares, debes incluir que se informa al compareciente de la conveniencia de proceder a la anulación de las tarjetas bancarias a la mayor brevedad posible, a fin de evitar un posible uso fraudulento de las mismas.\n"
-    "- Si no existe lugar concreto de los hechos, puedes indicar que no procede inspección ocular.\n\n"
+    "PROHIBICIONES:\n"
+    "- No usar listas ni numeraciones.\n"
+    "- No usar lenguaje literario.\n"
+    "- No usar frases genéricas tipo IA.\n"
+    "- No usar formato de informe municipal.\n"
+    "- No inventar datos.\n\n"
 
-    "TIPO DE HECHO DENUNCIADO:\n"
-    "- Si los hechos se refieren a daños, debes integrar, si constan, referencias al estado previo del bien afectado, al momento en que se detectan los daños, a la ausencia de sospechosos y a la inexistencia de cámaras de vigilancia en las inmediaciones.\n"
-    "- Si los hechos se refieren a hurto o sustracción, debes integrar, si constan, los efectos sustraídos, la imposibilidad de concretar el momento exacto y la conveniencia de anular tarjetas bancarias si las hubiere.\n"
-    "- Debes desarrollar el relato con lenguaje técnico aunque la información sea escasa, sin inventar datos.\n"
-    "- Puedes cerrar la exposición con fórmulas como 'sin que se aporten más datos de interés en este momento'.\n\n"
+    "DATOS:\n"
+    "- Usa solo los datos facilitados.\n"
+    "- Si un dato no consta, se omite.\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
 )
@@ -541,13 +567,110 @@ PROMPT_ATESTADO_INSPECCION = (
 )
 
 PROMPT_INFORME_MUNICIPAL = (
-    "Eres un asistente de redacción policial para la Policía Local de Poio. Debes redactar un INFORME MUNICIPAL en castellano, con tono formal, objetivo, técnico y administrativo. "
-    "Integra hora del aviso y hora de personación si constan. Debe ser apto para conflictos entre particulares, incidencias en inmuebles, requerimientos vecinales o incidencias municipales.\n\n"
-    + BLOQUE_TIEMPO_PRESENTE
-    + "\n"
-    + TRATAMIENTO_PERSONAS_MUNICIPAL
-    + "\n"
+    "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
+
+    "Debes redactar un INFORME MUNICIPAL con estilo real de Jefatura.\n"
+    "El texto debe ir íntegramente en prosa.\n"
+    "Todos los párrafos deben comenzar obligatoriamente por 'Que'.\n"
+    "No se permiten listas, guiones ni formato de carta.\n\n"
+
+    "IDENTIFICACIÓN DEL ALERTANTE:\n"
+    "- Debes diferenciar entre identificación telefónica y presencial.\n"
+    "- Si los datos del alertante (nombre, DNI o teléfono) ya constan en el aviso, debes entender que ha sido identificado telefónicamente.\n"
+    "- En ese caso, debes usar fórmulas como: 'Que se recibe aviso telefónico de D...., debidamente identificado...'.\n"
+    "- No debes volver a indicar que es identificado en el lugar si ya consta identificado previamente.\n"
+    "- Si no consta identificación previa, debes indicar que es identificado en el lugar con fórmulas como: 'donde identifican al alertante, resultando ser D....'.\n"
+    "- Nunca debes duplicar la identificación en ambos momentos.\n\n"
+
+    "ORIGEN DE LA ACTUACIÓN:\n"
+    "- Si los datos indican comparecencia, debes comenzar con:\n"
+    "  'Que se persona en dependencias de la Policía Local de Poio...'\n"
+    "- Si los datos indican aviso/intervención, debes comenzar con:\n"
+    "  'Que se recibe aviso...' o 'Que los agentes se personan...'\n"
+    "- Nunca mezclar ambos escenarios.\n\n"
+
+    "INTERVENCIÓN POLICIAL (SI PROCEDE):\n"
+    "- Cuando haya actuación en el lugar, debes incluir:\n"
+    "  'Que los agentes con NIP XXXX y NIP XXXX, uniformados reglamentariamente, se personan en el lugar en vehículo oficial rotulado bajo el indicativo policial XXXX...'\n"
+    "- Si no consta indicativo, no lo inventes.\n\n"
+
+    "LIMITACIÓN DE CONTENIDO POLICIAL:\n"
+    "- Debes limitarte exclusivamente a describir hechos y actuaciones policiales reales.\n"
+    "- No debes incluir consejos, recomendaciones ni valoraciones personales.\n"
+    "- No debes sugerir mediación, calma, diálogo ni soluciones.\n"
+    "- No debes redactar actuaciones que no sean estrictamente policiales.\n"
+    "- Solo debes incluir actuaciones si constan en los datos (informar, identificar, realizar gestiones, etc.).\n"
+    "- Si no consta actuación concreta, no la inventes.\n\n"
+
+    "ACTUACIONES POLICIALES PERMITIDAS:\n"
+    "- Solo puedes incluir actuaciones como:\n"
+    "  'Que se informa...'\n"
+    "  'Que se identifican las partes...'\n"
+    "  'Que se realiza reportaje fotográfico...'\n"
+    "  'Que se recogen manifestaciones...'\n"
+    "- No añadir actuaciones no reflejadas en los datos.\n\n"
+
+    "MEDIACIÓN:\n"
+    "- Solo debes incluir mediación si el contexto refleja claramente actuación de los agentes entre las partes.\n"
+    "- En ese caso, puedes usar:\n"
+    "  'Que se media entre las partes implicadas...'\n"
+    "- No debes incluir mediación si no consta claramente.\n\n"
+
+    "MANIFESTACIONES:\n"
+    "- Debes reflejar SIEMPRE:\n"
+    "  'Que D. ... manifiesta que...'\n"
+    "- Si hay varias partes:\n"
+    "  'Que D. ... manifiesta que...'\n"
+    "  'Que Dña. ... manifiesta que...'\n"
+    "- No usar 'Se observa que'.\n\n"
+
+    "CONFLICTOS ENTRE PARTES:\n"
+    "- Si existen versiones contradictorias:\n"
+    "  Debes reflejarlas de forma neutral.\n"
+    "- Si hay antecedentes:\n"
+    "  'Que por las manifestaciones de las partes implicadas se constatan antecedentes de conflictos...'\n\n"
+
+    "ACTUACIÓN POLICIAL:\n"
+    "- Debes usar fórmulas reales:\n"
+    "  'Que se realiza reportaje fotográfico...'\n"
+    "  'Que se informa a las partes...'\n"
+    "  'Que se practican gestiones...'\n\n"
+
+    "ESTILO:\n"
+    "- Redacción limpia, continua y profesional.\n"
+    "- Sin lenguaje administrativo genérico.\n"
+    "- Sin tono explicativo ni narrativo tipo relato.\n"
+    "- Debe parecer redactado por un policía en Jefatura.\n\n"
+
+    "CIERRE OBLIGATORIO:\n"
+    "- Debes finalizar SIEMPRE con:\n"
+    "  'Que se procede a la elaboración del presente informe a los efectos oportunos.'\n\n"
+
+    "PROHIBICIONES ABSOLUTAS:\n"
+    "- No escribir 'Atentamente'.\n"
+    "- No añadir firmas.\n"
+    "- No añadir nombres de agentes.\n"
+    "- No añadir NIP al final.\n"
+    "- No usar '[Nombre del agente]'.\n"
+    "- No usar 'Sin más...'.\n"
+    "- No usar lenguaje de IA.\n\n"
+
+    "TRATAMIENTO DE PERSONAS:\n"
+    "- Todas las personas como 'D.' o 'Dña.' + nombre completo.\n"
+    "- NO incluir DNI ni teléfono.\n"
+    "- Los agentes solo por NIP.\n\n"
+
+    "TIEMPO VERBAL:\n"
+    "- Siempre en presente policial: 'se persona', 'manifiesta', 'se informa'.\n"
+    "- Nunca en pasado.\n\n"
+
+    "DATOS:\n"
+    "- No inventar datos.\n"
+    "- Si no consta, se omite.\n"
+    "- Nunca escribir 'No consta'.\n\n"
+
     + REGLAS_COMUNES_NO_INVENTAR
+    + BLOQUE_CONTEXTO_JEFATURA
 )
 
 PROMPT_PARTE_SERVICIO = (
@@ -848,6 +971,163 @@ OPCIONES_SELECT = {
 # =========================================================
 # COMPONENTES UI
 # =========================================================
+def render_form_fields_grupo(titulo: str, campos: list[str], key_prefix: str) -> dict:
+    st.markdown(
+        f"""
+        <div class="bloque-seccion">
+            <div style="font-size: 18px; font-weight: 700; margin-bottom: 6px;">
+                {titulo}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    return render_form_fields(campos, key_prefix)
+
+def selector_contexto_municipal(key_prefix: str) -> tuple[str, str]:
+    col1, col2 = st.columns(2)
+
+    with col1:
+        origen = st.radio(
+            "Origen de la actuación",
+            ["Comparecencia en jefatura", "Llamada / aviso telefónico", "Actuación de oficio"],
+            key=f"origen_actuacion_{key_prefix}",
+        )
+
+    with col2:
+        intervencion = st.radio(
+            "¿Hubo intervención presencial en el lugar?",
+            ["Sí", "No"],
+            key=f"intervencion_presencial_{key_prefix}",
+        )
+
+    return origen, intervencion
+
+def construir_bloque_usuario_municipal(datos: dict, origen_actuacion: str, intervencion_presencial: str) -> str:
+    bloque = [
+        f"Origen de la actuación: {origen_actuacion}",
+        f"Intervención presencial en el lugar: {intervencion_presencial}",
+    ]
+    bloque.extend([f"{k}: {v}" for k, v in datos.items() if str(v).strip()])
+    return "\n".join(bloque)
+
+    new_func(datos, bloque)
+
+def new_func(datos, bloque):
+    bloque.append(f"Alertante identificado previamente: {'Sí' if datos.get('DNI del alertante o requirente') else 'No'}")
+
+def pagina_informe_municipal(api_key: str):
+    key_prefix = "municipal"
+    cabecera_modulo("Informe municipal", "🏛️")
+
+    bloque_texto_a_campos(api_key, "municipal", "Informe municipal", CAMPOS_INFORME_MUNICIPAL)
+    modo_redaccion = selector_modo_redaccion("modo_municipal", "municipal")
+    origen_actuacion, intervencion_presencial = selector_contexto_municipal(key_prefix)
+
+
+    col_tools_1, col_tools_2 = st.columns(2)
+    with col_tools_1:
+        if st.button("🧹 Limpiar formulario", key="limpiar_municipal"):
+            resetear_formulario("municipal", ["resultado_municipal", "datos_municipal"])
+            st.rerun()
+
+    with col_tools_2:
+        st.caption("Usa dictado o rellena manualmente los campos.")
+
+    datos = {}
+
+    datos.update(render_form_fields_grupo(
+        "📍 Datos generales",
+        ["Fecha", "Hora", "Hora de personación", "Lugar", "Agentes"],
+        key_prefix,
+    ))
+
+    datos.update(render_form_fields_grupo(
+        "👥 Intervinientes",
+        [
+            "Alertante o requirente",
+            "DNI del alertante o requirente",
+            "Teléfono del alertante o requirente",
+            "Partes implicadas",
+            "DNI partes implicadas",
+            "Teléfono partes implicadas",
+        ],
+        key_prefix,
+    ))
+
+    datos.update(render_form_fields_grupo(
+        "🧾 Hechos",
+        [
+            "Asunto",
+            "Versión de la parte A",
+            "Versión de la parte B",
+            "Observaciones de los agentes",
+        ],
+        key_prefix,
+    ))
+
+    datos.update(render_form_fields_grupo(
+        "📸 Actuaciones y cierre",
+        [
+            "Documentación o imágenes",
+            "Análisis técnico o valoración policial",
+            "Conclusión o resultado",
+            "Observaciones adicionales",
+        ],
+        key_prefix,
+    ))
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        generar = st.button("Generar informe municipal", key="btn_generar_municipal")
+
+    with col2:
+        regenerar = st.button("Regenerar informe municipal", key="btn_regenerar_municipal")
+
+    if generar or regenerar:
+        prompt_final = (
+            PROMPT_INFORME_MUNICIPAL
+            + "\n\n"
+            + obtener_instruccion_modo_redaccion(modo_redaccion)
+        )
+
+        bloque = construir_bloque_usuario_municipal(
+            datos,
+            origen_actuacion,
+            intervencion_presencial,
+        )
+
+        debug_log("DATOS PARA IA", bloque)
+
+        with st.spinner("Generando informe..."):
+            texto = generar_texto_con_ia(api_key, prompt_final, bloque)
+
+        st.session_state["resultado_municipal"] = texto
+        st.session_state["datos_municipal"] = datos
+
+    if st.session_state.get("resultado_municipal"):
+        mostrar_resultado(
+            st.session_state["resultado_municipal"],
+            st.session_state.get("datos_municipal", {}),
+            "informe_municipal",
+            resultado_key="resultado_municipal",
+            datos_key="datos_municipal",
+        )
+
+def selector_contexto_actuacion(key_prefix: str) -> str:
+    return st.radio(
+        "Contexto de actuación",
+        ["Comparecencia en jefatura", "Intervención en vía pública"],
+        horizontal=True,
+        key=f"contexto_actuacion_{key_prefix}",
+    )
+
+
+def construir_bloque_usuario_con_contexto(datos: dict, contexto_actuacion: str) -> str:
+    bloque = [f"Contexto de actuación: {contexto_actuacion}"]
+    bloque.extend([f"{k}: {v}" for k, v in datos.items() if str(v).strip()])
+    return "\n".join(bloque)
 
 def debug_log(titulo: str, dato: Any):
     if st.session_state.get("debug_mode", False):
@@ -908,7 +1188,8 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
 
     for campo in campos:
         clave = f"{key_prefix}_{campo}"
-        clave_widget = f"widget_{clave}"
+        reset_version = get_reset_version(key_prefix)
+        clave_widget = f"widget_{clave}_{reset_version}"
 
         if campo.lower() == "fecha":
             valor_actual = st.session_state.get(clave_widget, st.session_state.get(clave, ""))
@@ -953,9 +1234,11 @@ def aplicar_datos_a_session_state(datos_extraidos: dict, key_prefix: str):
     if not isinstance(datos_extraidos, dict):
         return
 
+    reset_version = get_reset_version(key_prefix)
+
     for campo, valor in datos_extraidos.items():
         clave_base = f"{key_prefix}_{campo}"
-        clave_widget = f"widget_{clave_base}"
+        clave_widget = f"widget_{clave_base}_{reset_version}"
 
         valor = "" if valor is None else str(valor).strip()
 
@@ -975,30 +1258,32 @@ def aplicar_datos_a_session_state(datos_extraidos: dict, key_prefix: str):
             st.session_state[clave_widget] = valor
 
 
-def resetear_formulario(campos: list[str], key_prefix: str, claves_resultado: list[str] | None = None):
-    for campo in campos:
-        clave_base = f"{key_prefix}_{campo}"
-        clave_widget = f"widget_{clave_base}"
+def resetear_formulario(key_prefix: str, claves_resultado: list[str] | None = None):
+    claves_a_borrar = []
 
-        if clave_base in st.session_state:
-            del st.session_state[clave_base]
-        if clave_widget in st.session_state:
-            del st.session_state[clave_widget]
+    for clave in list(st.session_state.keys()):
+        if (
+            clave.startswith(f"{key_prefix}_")
+            or clave.startswith(f"widget_{key_prefix}_")
+            or clave.startswith(f"audio_campos_{key_prefix}")
+            or clave.startswith(f"dictado_campos_{key_prefix}")
+            or clave.startswith(f"texto_dictado_{key_prefix}")
+            or clave == f"contexto_actuacion_{key_prefix}"
+            or clave == f"origen_actuacion_{key_prefix}"
+            or clave == f"intervencion_presencial_{key_prefix}"
+            or clave == f"nombre_informe_municipal"
+        ):
+            claves_a_borrar.append(clave)
 
-    claves_extra = [
-        f"audio_campos_{key_prefix}",
-        f"dictado_campos_{key_prefix}",
-        f"texto_dictado_{key_prefix}",
-    ]
+    if claves_resultado:
+        claves_a_borrar.extend(claves_resultado)
 
-    for clave in claves_extra:
+    for clave in set(claves_a_borrar):
         if clave in st.session_state:
             del st.session_state[clave]
 
-    if claves_resultado:
-        for clave in claves_resultado:
-            if clave in st.session_state:
-                del st.session_state[clave]
+    # Fuerza recreación de widgets con claves nuevas
+    bump_reset_version(key_prefix)
 
 
 def mostrar_resultado(texto: str, datos: dict, prefijo: str, resultado_key: str | None = None, datos_key: str | None = None):
@@ -1086,9 +1371,9 @@ def extraer_campos_desde_dictado(api_key: str, tipo_documento: str, texto_dictad
   - "Fecha de personación de los agentes"
   - "Hora de personación de los agentes"
 - Si la persona comparece en dependencias días después del accidente, NO debes confundir ese momento con la fecha y hora del siniestro.
-- Si del dictado se desprende que el accidente ocurrió antes y que posteriormente la persona acude a jefatura a comunicarlo, debes separar correctamente ambos momentos.
-- Si el dictado menciona expresamente que la persona se persona en jefatura o en dependencias policiales para contar un accidente ocurrido con anterioridad, debes rellenar los campos de comparecencia en jefatura si existen entre los campos objetivo.
-- Si el dictado menciona que los agentes se personan en el lugar en otro momento distinto, debes rellenar aparte la fecha y hora de personación de los agentes si esos campos existen entre los campos objetivo.
+- Si del relato se desprende que los hechos ocurrieron antes y que posteriormente la persona acude a jefatura a comunicarlo, debes separar correctamente ambos momentos.
+- Si el texto menciona expresamente que la persona se persona en jefatura o en dependencias policiales para contar un accidente ocurrido con anterioridad, debes rellenar los campos de comparecencia en jefatura si existen entre los campos objetivo.
+- Si el texto menciona que los agentes se personan en el lugar en otro momento distinto, debes rellenar aparte la fecha y hora de personación de los agentes si esos campos existen entre los campos objetivo.
 - Si solo consta la hora pero no la fecha, rellena solo la hora.
 - Si solo consta la fecha pero no la hora, rellena solo la fecha.
 """
@@ -1111,7 +1396,7 @@ def extraer_campos_desde_dictado(api_key: str, tipo_documento: str, texto_dictad
 """
 
     prompt = f"""
-Eres un asistente policial que extrae datos estructurados desde un dictado libre.
+Eres un asistente policial especializado en extraer información estructurada desde textos libres utilizados por agentes de Policía Local en Jefatura.
 
 TIPO DE DOCUMENTO:
 {tipo_documento}
@@ -1119,38 +1404,73 @@ TIPO DE DOCUMENTO:
 CAMPOS A RELLENAR:
 {json.dumps(campos_objetivo, ensure_ascii=False, indent=2)}
 
-INSTRUCCIONES:
+INSTRUCCIONES GENERALES:
 - Devuelve EXCLUSIVAMENTE un objeto JSON válido.
 - No escribas texto antes ni después del JSON.
 - Usa exactamente como claves los nombres de los campos proporcionados.
-- Si un dato no aparece claro, deja su valor como cadena vacía "".
 - No inventes datos.
-- Si el dictado menciona agentes, horas, lugar, daños, dinámica o motivo del aviso, colócalos en el campo más adecuado.
-- En los campos narrativos amplios, resume fielmente el dictado con lenguaje claro, técnico y útil para redacción policial.
+- Si un dato no aparece claro, deja su valor como cadena vacía "".
+
+INTERPRETACIÓN POLICIAL DEL TEXTO:
+- Debes interpretar el lenguaje natural como lo haría un agente.
+- No te limites a copiar texto; debes estructurarlo correctamente.
+
+GÉNERO (MUY IMPORTANTE):
+- Detecta si la persona es hombre o mujer por el nombre.
+- Si es mujer, usa "Dña." delante del nombre.
+- Si es hombre, usa "D." delante del nombre.
+- Ejemplo: María → Dña. María
+
+COMPARECENCIAS EN JEFATURA:
+- Si el texto indica que alguien acude a dependencias, interprétalo como comparecencia.
+- Ejemplo: "vino a jefatura", "se presenta en dependencias", "comparece en Policía Local"
+
+CAMPOS CLAVE:
+- "Alertante o requirente" → persona que acude o llama
+- "Partes implicadas" → resto de personas mencionadas
+- "Asunto" → resumen breve (insultos, daños, discusión, etc.)
+- "Versión de la parte A" → lo que dice el alertante
+- "Versión de la parte B" → lo que dice la otra parte, si existe
+
+VERSIONES:
+- Separa correctamente versiones si hay dos partes.
+- Usa lenguaje claro y directo.
+- No mezcles versiones.
+
+ACTUACIONES:
+- Si se menciona actuación policial (fotos, llamadas, gestiones, personación, comprobaciones, etc.), inclúyelo en el campo correspondiente.
+- No inventar actuaciones.
+
+ESTILO:
+- Resume el texto en lenguaje claro y útil para redacción policial.
+- No escribas frases largas innecesarias.
+
 {instrucciones_select}
+
 {instrucciones_tiempo}
+
 {instrucciones_logica}
+
 {instrucciones_vehiculos}
 
 JSON base esperado:
 {json.dumps(esquema, ensure_ascii=False, indent=2)}
 
-DICTADO:
+TEXTO:
 {texto_dictado}
 """
 
     try:
         respuesta = client.chat.completions.create(
             model="gpt-4o-mini",
-            temperature=0.1,
+            temperature=0,
+            response_format={"type": "json_object"},
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "Devuelve solo JSON válido, sin texto adicional y sin inventar datos. "
-                        "Respeta exactamente las claves pedidas. "
-                        "Distingue correctamente accidente, aviso, comparecencia en jefatura y personación de los agentes cuando aparezcan en el dictado. "
-                        "Si el accidente se comunica posteriormente, separa correctamente los momentos temporales."
+                        "Debes devolver solo un objeto JSON válido, sin explicaciones. "
+                        "Usa exactamente las claves pedidas y no inventes datos."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -1158,11 +1478,12 @@ DICTADO:
         )
 
         contenido = (respuesta.choices[0].message.content or "").strip()
-        contenido = limpiar_json_respuesta(contenido)
+        debug_log("RESPUESTA RAW IA", contenido)
 
         datos = json.loads(contenido)
 
         if not isinstance(datos, dict):
+            debug_log("ERROR PARSEO", "La respuesta no es un diccionario")
             return esquema
 
         resultado = {}
@@ -1178,76 +1499,41 @@ DICTADO:
         return resultado
 
     except Exception as e:
-        st.warning(f"No se pudieron extraer campos desde el dictado. Error: {e}")
+        st.warning(f"No se pudieron extraer campos desde el texto. Error: {e}")
+        debug_log("EXCEPCIÓN EXTRACCIÓN", str(e))
         return esquema
 
+def bloque_texto_a_campos(api_key: str, key_prefix: str, tipo_documento: str, campos_objetivo: list[str]):
+    st.subheader("📄 Rellenar campos desde texto")
+    st.caption("Pega aquí un texto y la app rellenará automáticamente los campos.")
 
-def bloque_dictado_a_campos(api_key: str, key_prefix: str, tipo_documento: str, campos_objetivo: list[str]):
-    st.subheader("🎤 Dictado inteligente")
-    st.caption("Graba un relato libre y la app intentará rellenar automáticamente los campos.")
+    reset_version = get_reset_version(key_prefix)
+    clave_texto = f"texto_base_{key_prefix}_{reset_version}"
 
-    audio_bytes = audio_recorder(
-        text="Pulsa para grabar",
-        recording_color="#d32f2f",
-        neutral_color="#1976d2",
-        icon_name="microphone",
-        icon_size="2x",
-        pause_threshold=4.0,
-        sample_rate=41000,
-        key=f"audio_campos_{key_prefix}",
+    texto = st.text_area(
+        "Texto base",
+        height=150,
+        key=clave_texto,
     )
 
-    if audio_bytes:
-        st.session_state[f"audio_campos_{key_prefix}"] = audio_bytes
+    if st.button("Rellenar campos automáticamente", key=f"rellenar_texto_{key_prefix}_{reset_version}"):
+        if not texto.strip():
+            st.warning("Introduce un texto primero.")
+        else:
+            with st.spinner("Extrayendo campos desde el texto..."):
+                datos_extraidos = extraer_campos_desde_dictado(
+                    api_key=api_key,
+                    tipo_documento=tipo_documento,
+                    texto_dictado=texto,
+                    campos_objetivo=campos_objetivo,
+                )
 
-    audio_guardado = st.session_state.get(f"audio_campos_{key_prefix}")
-    texto_guardado = st.session_state.get(f"dictado_campos_{key_prefix}", "")
+            debug_log("CAMPOS EXTRAÍDOS", datos_extraidos)
 
-    col_a, col_b = st.columns(2)
+            aplicar_datos_a_session_state(datos_extraidos, key_prefix)
 
-    with col_a:
-        if st.button("Transcribir dictado", key=f"transcribir_campos_{key_prefix}"):
-            if not audio_guardado:
-                st.warning("Primero graba un audio.")
-            else:
-                with st.spinner("Transcribiendo audio..."):
-                    texto = transcribir_audio_con_openai(api_key, audio_guardado)
-
-                if texto.strip():
-                    st.session_state[f"dictado_campos_{key_prefix}"] = texto
-                    texto_guardado = texto
-                    st.success("Dictado transcrito.")
-                else:
-                    st.warning("No se pudo transcribir el audio o no se detectó voz clara.")
-
-    with col_b:
-        if st.button("Rellenar campos desde dictado", key=f"rellenar_campos_{key_prefix}"):
-            texto_actual = st.session_state.get(f"texto_dictado_{key_prefix}", texto_guardado)
-            if not str(texto_actual).strip():
-                st.warning("Primero graba o escribe un dictado.")
-            else:
-                with st.spinner("Extrayendo campos desde el dictado..."):
-                    datos_extraidos = extraer_campos_desde_dictado(
-                        api_key=api_key,
-                        tipo_documento=tipo_documento,
-                        texto_dictado=texto_actual,
-                        campos_objetivo=campos_objetivo,
-                    )
-
-                debug_log("CAMPOS EXTRAÍDOS", datos_extraidos)
-                aplicar_datos_a_session_state(datos_extraidos, key_prefix)
-                st.success("Campos rellenados automáticamente. Revisa y corrige lo que haga falta.")
-                st.rerun()
-
-    texto_guardado = st.text_area(
-        "Texto dictado",
-        value=texto_guardado,
-        height=140,
-        key=f"texto_dictado_{key_prefix}",
-    )
-
-    st.session_state[f"dictado_campos_{key_prefix}"] = texto_guardado
-
+            st.success("Campos rellenados automáticamente.")
+            st.rerun()
 
 # =========================================================
 # MÓDULOS
@@ -1271,14 +1557,15 @@ def generar_modulo_simple(
     transformar_datos=None,
 ):
     cabecera_modulo(titulo, icono)
-    modo_redaccion = selector_modo_redaccion(modo_key, key_prefix)
 
-    bloque_dictado_a_campos(api_key, key_prefix, tipo_documento, campos)
+    bloque_texto_a_campos(api_key, key_prefix, tipo_documento, campos)
+
+    modo_redaccion = selector_modo_redaccion(modo_key, key_prefix)
 
     col_tools_1, col_tools_2 = st.columns(2)
     with col_tools_1:
         if st.button("🧹 Limpiar formulario", key=f"limpiar_{key_prefix}"):
-            resetear_formulario(campos, key_prefix, [resultado_key, datos_key])
+            resetear_formulario(key_prefix, [resultado_key, datos_key])
             st.rerun()
     with col_tools_2:
         st.caption("Usa el dictado o rellena los campos manualmente.")
@@ -1320,18 +1607,18 @@ def generar_modulo_simple(
 def pagina_atestado(api_key: str):
     key_prefix = "atestado"
     cabecera_modulo("Atestado completo", "📄")
+    
+    bloque_texto_a_campos(api_key, "atestado", "Atestado completo", CAMPOS_ATESTADO_COMPLETO)
+    
     modo_redaccion = selector_modo_redaccion("modo_atestado", "atestado")
-
-    bloque_dictado_a_campos(api_key, key_prefix, "Atestado completo", CAMPOS_ATESTADO_COMPLETO)
 
     col_tools_1, col_tools_2 = st.columns(2)
     with col_tools_1:
         if st.button("🧹 Limpiar formulario", key="limpiar_atestado"):
-            resetear_formulario(CAMPOS_ATESTADO_COMPLETO, key_prefix, ["resultado_atestado", "datos_atestado"])
+            resetear_formulario("atestado", ["resultado_atestado", "datos_atestado"])
             st.rerun()
     with col_tools_2:
         st.caption("Genera exposición e inspección ocular en un solo paso.")
-
     datos = render_form_fields(CAMPOS_ATESTADO_COMPLETO, key_prefix)
 
     col1, col2 = st.columns(2)
@@ -1599,19 +1886,49 @@ def aplicar_estilos(modo_patrulla: bool):
             unsafe_allow_html=True,
         )
     else:
-        st.markdown(
-            """
-            <style>
-            .bloque-modulo {
-                border: 1px solid rgba(128,128,128,0.25);
-                border-radius: 18px;
-                padding: 14px 16px;
-                margin-bottom: 12px;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown("""
+        <style>
+
+        /* Texto general más grande */
+        html, body, [class*="css"]  {
+            font-size: 16px !important;
+        }
+
+        /* Títulos de campos */
+        label {
+            font-size: 16px !important;
+            font-weight: 600 !important;
+        }
+
+        /* Inputs más cómodos */
+        textarea, input {
+            font-size: 15px !important;
+        }
+
+        /* Bloques visuales */
+        .bloque-seccion {
+            border: 1px solid rgba(0,0,0,0.15);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 12px;
+            background-color: #fafafa;
+        }
+
+        /* Botones más grandes */
+        .stButton > button {
+            font-size: 16px;
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        /* Resultado más cómodo */
+        .stTextArea textarea {
+            font-size: 15px !important;
+            line-height: 1.5;
+        }
+
+        </style>
+        """, unsafe_allow_html=True)
 
 
 # =========================================================
@@ -1677,29 +1994,34 @@ if not api_key:
     st.info("Introduce tu API key en la barra lateral para empezar.")
     st.stop()
 
-config = MODULOS.get(pagina)
+if pagina == "Informe municipal":
+    pagina_informe_municipal(api_key)
 
-if not config:
-    st.info("Selecciona un módulo.")
-    st.stop()
+else:
+    config = MODULOS.get(pagina)
 
-if config["tipo"] == "simple":
-    generar_modulo_simple(
-        api_key=api_key,
-        key_prefix=config["key_prefix"],
-        titulo=config["titulo"],
-        icono=config["icono"],
-        tipo_documento=config["tipo_documento"],
-        campos=config["campos"],
-        prompt_base=config["prompt"],
-        resultado_key=config["resultado_key"],
-        datos_key=config["datos_key"],
-        prefijo_guardado=config["prefijo_guardado"],
-        modo_key=config["modo_key"],
-        texto_boton_generar=config["texto_boton_generar"],
-        texto_boton_regenerar=config["texto_boton_regenerar"],
-        spinner_texto=config["spinner_texto"],
-        transformar_datos=config["transformar_datos"],
-    )
-elif config["tipo"] == "atestado":
-    pagina_atestado(api_key)
+    if not config:
+        st.info("Selecciona un módulo.")
+        st.stop()
+
+    if config["tipo"] == "simple":
+        generar_modulo_simple(
+            api_key=api_key,
+            key_prefix=config["key_prefix"],
+            titulo=config["titulo"],
+            icono=config["icono"],
+            tipo_documento=config["tipo_documento"],
+            campos=config["campos"],
+            prompt_base=config["prompt"],
+            resultado_key=config["resultado_key"],
+            datos_key=config["datos_key"],
+            prefijo_guardado=config["prefijo_guardado"],
+            modo_key=config["modo_key"],
+            texto_boton_generar=config["texto_boton_generar"],
+            texto_boton_regenerar=config["texto_boton_regenerar"],
+            spinner_texto=config["spinner_texto"],
+            transformar_datos=config["transformar_datos"],
+        )
+
+    elif config["tipo"] == "atestado":
+        pagina_atestado(api_key)
