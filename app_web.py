@@ -1216,33 +1216,33 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
                 key=clave_widget,
             )
 
-        else:
-    campo_lower = campo.lower()
-
-    # CAMPOS LARGOS (solo los realmente narrativos)
-    if any(x in campo_lower for x in [
-        "relato",
-        "versión",
-        "observaciones",
-        "actuaciones",
-        "descripción",
-        "análisis",
-        "conclusión"
-    ]):
-        valor = st.text_area(
-            campo,
-            value=st.session_state.get(clave, ""),
-            key=clave_widget,
-            height=100,
-        )
-
-    # TODO LO DEMÁS → INPUT PEQUEÑO
     else:
-        valor = st.text_input(
-            campo,
-            value=st.session_state.get(clave, ""),
-            key=clave_widget,
-        )
+        campo_lower = campo.lower()
+
+        # CAMPOS LARGOS (solo los realmente narrativos)
+        if any(x in campo_lower for x in [
+            "relato",
+            "versión",
+            "observaciones",
+            "actuaciones",
+            "descripción",
+            "análisis",
+            "conclusión"
+        ]):
+            valor = st.text_area(
+                campo,
+                value=st.session_state.get(clave, ""),
+                key=clave_widget,
+                height=100,
+            )
+    
+        # TODO LO DEMÁS → INPUT PEQUEÑO
+        else:
+            valor = st.text_input(
+                campo,
+                value=st.session_state.get(clave, ""),
+                key=clave_widget,
+            )
 
         st.session_state[clave] = valor
         datos[campo] = valor
