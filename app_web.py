@@ -1394,17 +1394,58 @@ def tarjeta_modulo_movil(titulo: str, subtitulo: str, icono: str, clave: str, de
 def selector_modulo_movil() -> str:
     st.markdown("## 🚓 Modo patrulla")
 
+    st.markdown("""
+    <style>
+    .modulo-btn {
+        width: 100%;
+        height: 120px;
+        border-radius: 20px;
+        border: 1px solid rgba(128,128,128,0.2);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        font-size: 20px;
+        font-weight: 700;
+        cursor: pointer;
+        margin-bottom: 10px;
+        background-color: #ffffff10;
+        transition: 0.2s;
+    }
+
+    .modulo-btn:hover {
+        background-color: #1f77b420;
+        transform: scale(1.02);
+    }
+
+    .modulo-icon {
+        font-size: 34px;
+        margin-bottom: 6px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     col1, col2 = st.columns(2)
 
     with col1:
-        tarjeta_modulo_movil("Accidente", "Informe técnico", "🚗", "movil_accidente", "Accidente")
-        tarjeta_modulo_movil("Municipal", "Informe administrativo", "🏛️", "movil_municipal", "Informe municipal")
-        tarjeta_modulo_movil("Anomalía", "Incidencia municipal", "⚠️", "movil_anomalia", "Anomalía")
+        if st.button("🚗\nAccidente", key="movil_accidente"):
+            st.session_state["pagina_movil"] = "Accidente"
+
+        if st.button("🏛️\nInforme municipal", key="movil_municipal"):
+            st.session_state["pagina_movil"] = "Informe municipal"
+
+        if st.button("⚠️\nAnomalía", key="movil_anomalia"):
+            st.session_state["pagina_movil"] = "Anomalía"
 
     with col2:
-        tarjeta_modulo_movil("Atestado", "Hechos e inspección", "📄", "movil_atestado", "Atestado completo")
-        tarjeta_modulo_movil("Servicio", "Parte rápido", "📝", "movil_servicio", "Parte de servicio")
-        tarjeta_modulo_movil("Juzgado", "Gestiones judiciales", "⚖️", "movil_juzgado", "Informes al juzgado")
+        if st.button("📄\nAtestado", key="movil_atestado"):
+            st.session_state["pagina_movil"] = "Atestado completo"
+
+        if st.button("📝\nParte de servicio", key="movil_servicio"):
+            st.session_state["pagina_movil"] = "Parte de servicio"
+
+        if st.button("⚖️\nInformes al juzgado", key="movil_juzgado"):
+            st.session_state["pagina_movil"] = "Informes al juzgado"
 
     return st.session_state.get("pagina_movil", "Inicio")
 
