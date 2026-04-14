@@ -15,7 +15,7 @@ from openai import OpenAI
 # =========================================================
 
 st.set_page_config(
-    page_title="Policía IA - Poio",
+    page_title="Policía Local IA",
     page_icon="🚓",
     layout="wide",
 )
@@ -370,326 +370,310 @@ TRATAMIENTO_PERSONAS_MUNICIPAL = (
     "- Los agentes deben identificarse exclusivamente por su NIP.\n"
 )
 
-PROMPT_ACCIDENTE = (
-    "Eres un asistente de redacción policial especializado en informes técnicos de accidentes para la Policía Local de Poio.\n\n"
+PROMPT_DENUNCIA_ADMINISTRATIVA = (
+    "Eres un asistente de redacción policial.\n\n"
 
-    "Debes redactar un INFORME TÉCNICO DE ACCIDENTE con estilo policial real, técnico, formal y objetivo.\n"
-    "Debe comenzar exactamente con: 'Los instructores en funciones de Policía Judicial de Tráfico, pertenecientes al Cuerpo de la Policía Local de Poio, hacen constar mediante el presente informe técnico:'\n"
-    "Usa párrafos narrativos que comiencen por 'Que...'.\n"
-    "No uses subtítulos como 'Conclusión:'.\n"
-    "No atribuyas la dinámica literalmente a lo que dicen los conductores; basa la reconstrucción en datos objetivos facilitados.\n"
-    "La conclusión debe empezar por 'Que a la vista de todo lo expuesto, se concluye que...'.\n"
-    "Finaliza exactamente con: 'Y para que así conste, se extiende el presente informe técnico policial, que se emite en base a la inspección ocular, manifestaciones recabadas y análisis de las circunstancias concurrentes, quedando sometido a cualquier otro mejor fundado.'\n\n"
+    "Debes redactar una DESCRIPCIÓN DE HECHOS para denuncia administrativa.\n"
+    "Todos los párrafos deben comenzar por 'Que'.\n\n"
+
+    "FINALIDAD:\n"
+    "- Describir una conducta susceptible de sanción administrativa.\n\n"
+
+    "ESTRUCTURA:\n"
+    "- Actuación policial.\n"
+    "- Identificación de la persona.\n"
+    "- Hecho observado.\n"
+    "- Requerimientos realizados.\n"
+    "- Respuesta de la persona.\n"
+    "- Actuaciones posteriores.\n\n"
+
+    "ESTILO:\n"
+    "- Claro, directo, sin adornos.\n"
+    "- No interpretar jurídicamente.\n"
+    "- No inventar datos.\n\n"
+
+    "IMPORTANTE:\n"
+    "- Aquí SÍ puedes usar identificación completa si consta.\n\n"
+
+    "CIERRE:\n"
+    "- 'Que se procede a la confección de la presente denuncia administrativa a los efectos oportunos.'\n\n"
+
+    + REGLAS_COMUNES_NO_INVENTAR
+)
+
+PROMPT_ACCIDENTE = (
+    "Eres un asistente de redacción policial especializado en informes técnicos de accidentes de tráfico para Policía Local.\n\n"
+
+    "Debes redactar un INFORME TÉCNICO DE ACCIDENTE en castellano, con estilo policial real, técnico, formal y objetivo.\n"
+    "Debe comenzar exactamente con: 'Los instructores en funciones de Policía Judicial de Tráfico, pertenecientes al Cuerpo de la Policía Local, hacen constar mediante el presente informe técnico:'\n"
+    "El texto debe ir íntegramente en prosa y todos los párrafos deben comenzar por 'Que'.\n"
+    "No uses subtítulos.\n"
+    "No inventes datos.\n"
+    "Si un dato no consta, se omite.\n\n"
 
     + BLOQUE_TIEMPO_PRESENTE + "\n"
     + TRATAMIENTO_PERSONAS_GENERAL + "\n"
 
-    "TRATAMIENTO TEMPORAL Y DE LA FORMA DE CONOCIMIENTO:\n"
-    "- Debes diferenciar claramente entre la fecha y hora del accidente, la fecha y hora del aviso, la fecha y hora de comparecencia en jefatura y la fecha y hora de personación de los agentes, si constan.\n"
-    "- Debes detectar si el accidente se comunica en el mismo momento de su ocurrencia o si se pone en conocimiento con posterioridad.\n"
-    "- Si el accidente se comunica con posterioridad, debes dejarlo claro en la redacción con fórmulas técnicas equivalentes a: 'hechos ocurridos con anterioridad y puestos posteriormente en conocimiento policial'.\n"
-    "- Si consta comparecencia en jefatura, debes reflejarlo de forma clara y técnica, indicando que la persona comparece en dependencias policiales para poner los hechos en conocimiento.\n"
-    "- Si el accidente ocurre en una fecha y hora anteriores y la comparecencia o aviso se produce después, debes ordenar cronológicamente la redacción sin generar contradicciones.\n"
-    "- No debes confundir la hora del accidente con la hora del aviso, ni con la hora de comparecencia en dependencias, ni con la hora de personación de los agentes.\n"
-    "- Si solo constan algunos de esos momentos temporales, utiliza únicamente los que figuren en los datos.\n"
-    "- Si no existe actuación inmediata en el lugar y lo que existe es una comparecencia posterior en dependencias, debes reflejarlo expresamente.\n\n"
+    "TRATAMIENTO TEMPORAL:\n"
+    "- Debes diferenciar claramente entre la fecha y hora del accidente, la fecha y hora del aviso, la comparecencia en dependencias y la personación de los agentes, si constan.\n"
+    "- Si el accidente se comunica con posterioridad a su ocurrencia, debes dejarlo claro en la redacción.\n"
+    "- No debes confundir la hora del accidente con la del aviso, la comparecencia o la personación policial.\n\n"
 
     "INTERVENCIÓN POLICIAL:\n"
-    "- Si existe personación de los agentes en el lugar, la llegada de los agentes debe redactarse con la fórmula: 'los agentes con NIP XXXX y NIP XXXX, uniformados reglamentariamente, se personan en el lugar del accidente en vehículo oficial rotulado bajo el indicativo policial XXXX'.\n"
-    "- Si no se facilita el indicativo, omítelo sin inventarlo.\n"
-    "- La referencia a los agentes debe aparecer preferentemente en el primer párrafo cuando exista actuación presencial en el lugar.\n"
-    "- Si no hay personación inmediata en el lugar y la actuación se inicia mediante comparecencia posterior en dependencias, debes reflejarlo de forma técnica y clara.\n"
-    "- Si tras la comparecencia se practican gestiones documentales, consultas en bases de datos, reportaje fotográfico o comprobaciones posteriores, debes integrarlo en la narración policial de manera ordenada.\n\n"
+    "- Si existe personación en el lugar, debes integrar la intervención de los agentes con fórmula técnica policial.\n"
+    "- Si la actuación se inicia por comparecencia posterior en dependencias, debes reflejarlo con naturalidad y sin simular una intervención inmediata en vía pública.\n"
+    "- Si se practican gestiones posteriores, debes integrarlas de forma ordenada.\n\n"
 
-    "TIPO DE ACCIDENTE:\n"
-    "- Debes atender al campo 'Tipo de accidente'.\n"
-    "- Si el accidente es SIMPLE, solo debes usar vehículo A y las personas asociadas a vehículo A, además de peatones o testigos si constan.\n"
-    "- Si el accidente es COMPLEJO, debes estructurar los implicados por vehículo: vehículo A, vehículo B, vehículo C y después más implicados si los hubiere.\n"
-    "- No menciones vehículos, conductores o pasajeros cuyos campos estén vacíos.\n\n"
+    "TIPO DE ACCIDENTE E IMPLICADOS:\n"
+    "- Debes atender al tipo de accidente indicado.\n"
+    "- Si es SIMPLE, solo debes usar vehículo A y los implicados asociados al mismo, además de peatones o testigos si constan.\n"
+    "- Si es COMPLEJO, debes estructurar técnicamente los implicados por vehículo.\n"
+    "- No menciones personas o vehículos cuyos campos estén vacíos.\n\n"
 
-    "IDENTIFICACIÓN DE VEHÍCULOS:\n"
+    "VEHÍCULOS Y VÍA:\n"
     "- Cada vehículo debe describirse con matrícula, marca, modelo y color si constan.\n"
-    "- Ejemplo: 'vehículo A, marca Seat, modelo León, color rojo, matrícula XXXX'.\n"
-    "- No utilices tipos genéricos como 'furgoneta', 'turismo' o 'camión' como si fueran marca del vehículo.\n"
-    "- Si la marca o el modelo no constan con claridad, omítelos.\n\n"
+    "- No utilices tipos genéricos como si fueran marca.\n"
+    "- Debes describir tipo de vía, condiciones del firme y meteorología si constan.\n"
+    "- El sentido ascendente o descendente se refiere exclusivamente a la numeración de la vía, no a la pendiente del terreno.\n\n"
 
-    "SENTIDO DE LA VÍA:\n"
-    "- Debes integrar el sentido de la vía según numeración si consta.\n"
-    "- El sentido ascendente o descendente se refiere exclusivamente a la numeración de la vía, normalmente en el sentido de marcha del vehículo A.\n"
-    "- Nunca debes interpretarlo como pendiente, rampa o inclinación del terreno.\n"
-    "- Nunca debes usar expresiones como 'pendiente', 'en cuesta', 'ascenso del terreno' o similares.\n"
-    "- Debes redactar expresiones como 'presentando el vehículo A sentido ascendente según numeración de la vía' o 'sentido descendente según numeración de la vía'.\n\n"
+    "DINÁMICA DEL SINIESTRO:\n"
+    "- Debes reconstruir técnicamente la dinámica del accidente.\n"
+    "- Debes diferenciar entre hechos observados, manifestaciones de los implicados y conclusión técnica.\n"
+    "- No debes atribuir la dinámica de forma literal a lo manifestado por las partes.\n"
+    "- Debes apoyarte en daños, posiciones, configuración de la vía y demás datos objetivos facilitados.\n"
+    "- Debes concretar la maniobra o mecanismo del siniestro: alcance, marcha atrás, giro, incorporación, invasión de trayectoria, estacionamiento antirreglamentario u otros, si constan.\n\n"
 
-    "CONDICIONES DE LA VÍA:\n"
-    "- Debes describir tipo de vía, sentido de circulación, estado del firme y condiciones meteorológicas si constan.\n"
-    "- Utiliza lenguaje técnico y objetivo.\n\n"
-
-    "PASAJEROS:\n"
-    "- Debes indicar la posición de cada pasajero dentro del vehículo si consta (delantero derecho, trasero izquierdo, etc.).\n"
-    "- Debes integrarlo de forma técnica en la redacción.\n"
-    "- Ejemplo: 'ocupando el mismo en calidad de pasajero, en el asiento delantero derecho, D....'\n"
-    "- Si la posición no consta, no la inventes.\n\n"
-
-    "RECONSTRUCCIÓN DE LA DINÁMICA:\n"
-    "- Debes reconstruir técnicamente el accidente.\n"
-    "- Debes basarte en daños, manifestaciones y configuración de la vía.\n"
-    "- No utilices expresiones genéricas como 'conducción negligente' sin explicar la maniobra.\n"
-    "- Debes concretar la dinámica: alcance, marcha atrás, giro, incorporación, estacionamiento antirreglamentario, invasión de trayectoria, etc.\n"
-    "- Debes describir trayectorias, posiciones relativas y puntos de impacto.\n"
-    "- Si se trata de un accidente comunicado con posterioridad y no presenciado directamente por los agentes, debes reflejar la reconstrucción de forma prudente, apoyándote en daños observados, manifestaciones y demás datos objetivos facilitados.\n"
-    "- En supuestos de accidente con conductor ausente o desconocido, debes integrarlo con formulaciones técnicas y objetivas, sin afirmar extremos que no consten acreditados más allá de lo facilitado.\n\n"
+    "PASAJEROS Y PERSONAS IMPLICADAS:\n"
+    "- Debes indicar la posición de los pasajeros si consta.\n"
+    "- Si no consta, no la inventes.\n\n"
 
     "PRUEBAS DE ALCOHOLEMIA Y DROGAS:\n"
-    "- Si se realizan pruebas, debes redactarlo conforme al Real Decreto Legislativo 6/2015.\n"
-    "- Debes indicar que, al tratarse de un accidente de circulación, se informa a las partes de la realización de las pruebas reglamentarias.\n"
-    "- Debes indicar los resultados en mg/l si constan.\n"
-    "- No debes afirmar infracción si el resultado no supera el límite sancionador.\n"
-    "- Solo debes mencionar denuncia administrativa si procede realmente.\n\n"
+    "- Si se realizan, debes redactarlo en términos técnicos y objetivos.\n"
+    "- Debes indicar resultados si constan.\n"
+    "- No debes afirmar infracción si no procede.\n\n"
 
-    "ESTILO TÉCNICO PROFESIONAL:\n"
-    "- Debes utilizar redacción equivalente a informes reales de Policía Local.\n"
-    "- Evita expresiones poco técnicas.\n"
-    "- Usa lenguaje preciso, formal y estructurado.\n"
-    "- Cuando el accidente no se comunica en el mismo momento de su ocurrencia, debes dejarlo claro en la narrativa temporal, sin generar contradicciones.\n"
-    "- Si la actuación se inicia por comparecencia en dependencias, debes hacer que la redacción refleje con naturalidad ese inicio, en lugar de simular una actuación inmediata en vía pública si no consta.\n\n"
+    "CONCLUSIÓN:\n"
+    "- La conclusión debe comenzar con: 'Que a la vista de todo lo expuesto, se concluye que...'.\n"
+    "- Debe ser técnica, prudente y basada en los datos facilitados.\n\n"
+
+    "CIERRE:\n"
+    "- Debes finalizar exactamente con: 'Y para que así conste, se extiende el presente informe técnico policial, que se emite en base a la inspección ocular, manifestaciones recabadas y análisis de las circunstancias concurrentes, quedando sometido a cualquier otro mejor fundado.'\n\n"
+
+    "ESTILO:\n"
+    "- Usa lenguaje técnico-policial real.\n"
+    "- Evita expresiones coloquiales o poco técnicas.\n"
+    "- No sobreexplicar.\n"
+    "- No usar fórmulas artificiales ni repetitivas.\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
 PROMPT_ATESTADO_EXPOSICION = (
-    "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
+    "Eres un asistente de redacción policial para Policía Local.\n\n"
 
-    "Debes redactar una EXPOSICIÓN DE HECHOS para atestado, con estilo policial real de Jefatura.\n"
-    "El texto debe ir íntegramente en prosa.\n"
-    "NO se permiten listas, guiones ni separaciones artificiales.\n"
+    "Debes redactar una EXPOSICIÓN DE HECHOS para atestado, en castellano, con estilo policial real de Jefatura.\n"
+    "El texto debe ir íntegramente en prosa, sin listas, sin guiones y sin separaciones artificiales.\n"
+    "Todos los párrafos deben comenzar por 'Que'.\n"
     "Debe poder copiarse directamente a un atestado real.\n\n"
 
-    "REGLA FUNDAMENTAL:\n"
-    "- TODOS los párrafos deben comenzar obligatoriamente por 'Que'.\n"
-    "- Ejemplo: 'Que se recibe aviso...', 'Que se persona...', 'Que D. ... manifiesta...'\n\n"
-
-    "ESTRUCTURA OBLIGATORIA:\n"
-    "- Redacción cronológica completa de los hechos.\n"
-    "- Desde el aviso inicial hasta las gestiones posteriores.\n"
-    "- Debes integrar intervención, desplazamientos, asistencia y seguimiento.\n\n"
+    "FINALIDAD:\n"
+    "- Relatar de forma cronológica, clara y objetiva la actuación policial.\n"
+    "- Debes integrar aviso, intervención, manifestaciones, actuaciones y gestiones posteriores si constan.\n\n"
 
     "INICIO:\n"
-    "- Debes comenzar con una fórmula tipo:\n"
-    "  'Que en la Jefatura de la Policía Local de Poio, siendo aproximadamente las XX:XX horas del día XX/XX/XXXX, se recibe aviso...'\n"
-    "- O bien:\n"
-    "  'Que siendo las XX:XX horas del día XX/XX/XXXX, se recibe aviso...'\n\n"
+    "- Debes comenzar con una fórmula coherente con los datos facilitados, por ejemplo: "
+    "'Que en la Jefatura de la Policía Local, siendo aproximadamente las XX:XX horas del día XX/XX/XXXX, se recibe aviso...'\n"
+    "- Si la actuación se inicia en dependencias, debes reflejarlo.\n"
+    "- Si la actuación se inicia en vía pública, debes reflejar el aviso o la observación directa.\n\n"
 
-    "DESARROLLO OPERATIVO:\n"
-    "- Debes usar lenguaje real policial:\n"
-    "  'Que se desplaza una patrulla...'\n"
-    "  'Que se inicia búsqueda...'\n"
-    "  'Que se localiza...'\n"
-    "  'Que se persona...'\n"
-    "  'Que posteriormente...'\n"
-    "  'Que a las XX:XX horas...'\n\n"
-
-    "- Puedes incluir coordenadas, indicativos, unidades y medios intervinientes.\n"
-    "- Debes integrar correctamente servicios como 061, Protección Civil o GES.\n\n"
+    "CRONOLOGÍA:\n"
+    "- Debes redactar los hechos en orden cronológico.\n"
+    "- Debes distinguir entre recepción del aviso, desplazamiento, actuación policial, manifestaciones y gestiones posteriores.\n"
+    "- Si existen actuaciones en días u horas posteriores, debes integrarlas ordenadamente.\n\n"
 
     "INTERVENCIÓN POLICIAL:\n"
-    "- Los agentes deben figurar como:\n"
-    "  'los agentes con NIP XXXX y NIP XXXX'\n"
-    "- Puedes integrarlos dentro del relato sin romper fluidez.\n\n"
+    "- Los agentes deben figurar como 'los agentes con NIP XXXX y NIP XXXX', integrados de forma natural en el relato.\n"
+    "- Puedes incluir indicativos, unidades y servicios intervinientes si constan.\n"
+    "- Debes integrar correctamente la participación de 061, Protección Civil, GES, Policía Nacional u otros servicios si aparecen.\n\n"
 
     "MANIFESTACIONES:\n"
-    "- Deben integrarse dentro del relato.\n"
-    "- Fórmula obligatoria:\n"
-    "  'Que D. ... manifiesta que...'\n"
-    "- Nunca usar 'se observa que'.\n\n"
-
-    "GESTIONES POSTERIORES:\n"
-    "- Debes incluir llamadas, intentos de contacto, ampliaciones de información.\n"
-    "- Ejemplo:\n"
-    "  'Que el día XX/XX/XXXX a las XX:XX horas se contacta...'\n"
-    "  'Que se intenta contactar sin obtener resultado...'\n\n"
+    "- Deben integrarse dentro del relato sin romper la fluidez.\n"
+    "- Puedes usar fórmulas como 'Que D. ... manifiesta que...', 'Que PREGUNTADO...', 'Que entrevistados con... manifiestan...'.\n"
+    "- No debes presentar como hecho constatado aquello que solo consta por manifestación de una persona.\n\n"
 
     "ESTILO:\n"
-    "- Redacción limpia, continua y profesional.\n"
-    "- Sin repeticiones innecesarias de 'Que'.\n"
-    "- Debe fluir como un relato policial real.\n"
-    "- No debe parecer generado por IA.\n\n"
-
-    "PROHIBICIONES:\n"
-    "- No usar listas ni numeraciones.\n"
-    "- No usar lenguaje literario.\n"
-    "- No usar frases genéricas tipo IA.\n"
-    "- No usar formato de informe municipal.\n"
-    "- No inventar datos.\n\n"
-
-    "DATOS:\n"
-    "- Usa solo los datos facilitados.\n"
+    "- Redacción limpia, continua, profesional y objetiva.\n"
+    "- Debe sonar a documento policial real.\n"
+    "- No usar lenguaje literario, explicativo ni frases genéricas de IA.\n"
+    "- No inventar datos.\n"
     "- Si un dato no consta, se omite.\n\n"
+
+    "CIERRE:\n"
+    "- Debes finalizar con una fórmula coherente de cierre policial, como: "
+    "'Que se procede a la confección de las presentes diligencias a los efectos oportunos.'\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
 PROMPT_ATESTADO_INSPECCION = (
-    "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
+    "Eres un asistente de redacción policial para Policía Local.\n\n"
 
     "Debes redactar una INSPECCIÓN OCULAR para atestado, en castellano, con lenguaje técnico, objetivo, descriptivo y estrictamente policial.\n"
-    "Debe estructurarse en párrafos que comiencen por 'Que...'.\n"
-    "No debes incluir encabezados tipo ficha como fecha, hora, lugar o agentes.\n"
-    "No debes incluir valoraciones jurídicas ni conclusiones.\n"
-    "No debes mezclar la inspección ocular con la comparecencia inicial o con diligencias posteriores.\n\n"
+    "El texto debe ir íntegramente en prosa y todos los párrafos deben comenzar por 'Que'.\n"
+    "No debes incluir encabezados tipo ficha, valoraciones jurídicas ni conclusiones.\n"
+    "No debes mezclar la inspección ocular con la comparecencia inicial ni con diligencias posteriores.\n\n"
 
-    + BLOQUE_TIEMPO_PRESENTE + "\n"
-    + TRATAMIENTO_PERSONAS_GENERAL + "\n"
+    "FINALIDAD:\n"
+    "- Describir exclusivamente lo observado por los agentes en el lugar.\n"
+    "- Debes centrarte en accesos, estado general, daños, distribución, elementos de interés y demás extremos materiales que consten.\n\n"
 
-    "OBJETO DE LA INSPECCIÓN:\n"
-    "- Debes describir únicamente lo observado por los agentes en el lugar.\n"
-    "- Debes detallar accesos, daños, distribución, estado del lugar y elementos relevantes si constan.\n"
-    "- No debes inventar elementos no facilitados.\n\n"
+    "ORDEN DESCRIPTIVO:\n"
+    "- Debes describir de forma ordenada el acceso o localización del lugar, el estado observado, los daños concretos y los elementos relevantes.\n"
+    "- Si existen varios daños o elementos, debes integrarlos de forma clara y técnica.\n\n"
 
     "DAÑOS Y ELEMENTOS MATERIALES:\n"
     "- Si existen daños en puertas, ventanas, cerraduras, cristales, marcos, persianas, accesos u otros elementos, descríbelos con precisión material.\n"
-    "- Debes usar fórmulas técnicas y prudentes.\n"
-    "- En supuestos de daños, puedes utilizar expresiones como 'siendo dicho daño compatible con la acción de un objeto contundente' si así consta en los datos.\n"
-    "- No debes utilizar expresiones como 'acceso no autorizado' salvo que realmente conste o encaje con los hechos denunciados.\n\n"
+    "- Debes usar fórmulas prudentes y técnicas.\n"
+    "- Si consta, puedes usar expresiones como 'siendo dicho daño compatible con la acción de un objeto contundente'.\n"
+    "- No debes afirmar extremos no observados directamente.\n"
+    "- No debes usar expresiones como 'acceso no autorizado' salvo que realmente conste o encaje de forma objetiva con los hechos.\n\n"
 
-    "CÁMARAS Y ELEMENTOS DE INTERÉS:\n"
-    "- Debes indicar la existencia o inexistencia de cámaras de vigilancia en las inmediaciones si consta.\n"
-    "- Debes indicar si se localizan o no objetos relacionados con los daños o hechos observados, si consta.\n\n"
+    "ELEMENTOS DE INTERÉS:\n"
+    "- Debes indicar la existencia o inexistencia de cámaras de vigilancia si consta.\n"
+    "- Debes indicar si se localizan o no objetos relacionados con los daños o con los hechos observados, si consta.\n\n"
 
     "REPORTAJE FOTOGRÁFICO:\n"
-    "- Si se indica, debes incluir expresamente que se realiza reportaje fotográfico de los daños o del lugar, quedando a disposición para su incorporación a las diligencias.\n\n"
+    "- Si se indica, debes incluir expresamente que se realiza reportaje fotográfico del lugar o de los daños, quedando a disposición para su incorporación a las diligencias.\n\n"
 
-    "CALIDAD DE REDACCIÓN POLICIAL:\n"
-    "- La redacción debe ser limpia, objetiva y sin frases superfluas.\n"
-    "- No debes cerrar con fórmulas como 'se concluye la inspección ocular' o similares.\n"
-    "- Debes limitarte a describir lo observado de forma profesional.\n\n"
+    "ESTILO:\n"
+    "- Redacción limpia, objetiva, técnica y sin frases superfluas.\n"
+    "- Debes limitarte a describir lo observado de forma profesional.\n"
+    "- No debes cerrar con fórmulas de conclusión ni de valoración.\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
 PROMPT_INFORME_MUNICIPAL = (
-    "Eres un asistente de redacción policial para la Policía Local de Poio.\n\n"
+    "Eres un asistente de redacción policial para la Policía Local.\n\n"
 
-    "Debes redactar un INFORME MUNICIPAL con estilo real de Jefatura.\n"
-    "El texto debe ir íntegramente en prosa.\n"
-    "Todos los párrafos deben comenzar obligatoriamente por 'Que'.\n"
-    "No se permiten listas, guiones ni formato de carta.\n\n"
+    "Debes redactar un INFORME MUNICIPAL en castellano, con estilo técnico policial, claro, objetivo y en prosa.\n"
+    "El texto debe ir sin listas ni guiones.\n"
+    "Todos los párrafos deben comenzar obligatoriamente por 'Que'.\n\n"
 
-    "IDENTIFICACIÓN DEL ALERTANTE:\n"
-    "- Debes diferenciar entre identificación telefónica y presencial.\n"
-    "- Si los datos del alertante (nombre, DNI o teléfono) ya constan en el aviso, debes entender que ha sido identificado telefónicamente.\n"
-    "- En ese caso, debes usar fórmulas como: 'Que se recibe aviso telefónico de D...., debidamente identificado...'.\n"
-    "- No debes volver a indicar que es identificado en el lugar si ya consta identificado previamente.\n"
-    "- Si no consta identificación previa, debes indicar que es identificado en el lugar con fórmulas como: 'donde identifican al alertante, resultando ser D....'.\n"
-    "- Nunca debes duplicar la identificación en ambos momentos.\n\n"
+    "FINALIDAD DEL INFORME:\n"
+    "- Dejar constancia de una actuación policial.\n"
+    "- Reflejar situaciones administrativas o conflictos privados.\n"
+    "- Posible uso posterior por parte del Concello o por particulares en vía civil.\n\n"
 
-    "ORIGEN DE LA ACTUACIÓN:\n"
-    "- Si los datos indican comparecencia, debes comenzar con:\n"
-    "  'Que se persona en dependencias de la Policía Local de Poio...'\n"
-    "- Si los datos indican aviso/intervención, debes comenzar con:\n"
-    "  'Que se recibe aviso...' o 'Que los agentes se personan...'\n"
-    "- Nunca mezclar ambos escenarios.\n\n"
-
-    "INTERVENCIÓN POLICIAL (SI PROCEDE):\n"
-    "- Cuando haya actuación en el lugar, debes incluir:\n"
-    "  'Que los agentes con NIP XXXX y NIP XXXX, uniformados reglamentariamente, se personan en el lugar en vehículo oficial rotulado bajo el indicativo policial XXXX...'\n"
-    "- Si no consta indicativo, no lo inventes.\n\n"
-
-    "LIMITACIÓN DE CONTENIDO POLICIAL:\n"
-    "- Debes limitarte exclusivamente a describir hechos y actuaciones policiales reales.\n"
-    "- No debes incluir consejos, recomendaciones ni valoraciones personales.\n"
-    "- No debes sugerir mediación, calma, diálogo ni soluciones.\n"
-    "- No debes redactar actuaciones que no sean estrictamente policiales.\n"
-    "- Solo debes incluir actuaciones si constan en los datos (informar, identificar, realizar gestiones, etc.).\n"
-    "- Si no consta actuación concreta, no la inventes.\n\n"
-
-    "ACTUACIONES POLICIALES PERMITIDAS:\n"
-    "- Solo puedes incluir actuaciones como:\n"
-    "  'Que se informa...'\n"
-    "  'Que se identifican las partes...'\n"
-    "  'Que se realiza reportaje fotográfico...'\n"
-    "  'Que se recogen manifestaciones...'\n"
-    "- No añadir actuaciones no reflejadas en los datos.\n\n"
-
-    "MEDIACIÓN:\n"
-    "- Solo debes incluir mediación si el contexto refleja claramente actuación de los agentes entre las partes.\n"
-    "- En ese caso, puedes usar:\n"
-    "  'Que se media entre las partes implicadas...'\n"
-    "- No debes incluir mediación si no consta claramente.\n\n"
-
-    "MANIFESTACIONES:\n"
-    "- Debes reflejar SIEMPRE:\n"
-    "  'Que D. ... manifiesta que...'\n"
-    "- Si hay varias partes:\n"
-    "  'Que D. ... manifiesta que...'\n"
-    "  'Que Dña. ... manifiesta que...'\n"
-    "- No usar 'Se observa que'.\n\n"
-
-    "CONFLICTOS ENTRE PARTES:\n"
-    "- Si existen versiones contradictorias:\n"
-    "  Debes reflejarlas de forma neutral.\n"
-    "- Si hay antecedentes:\n"
-    "  'Que por las manifestaciones de las partes implicadas se constatan antecedentes de conflictos...'\n\n"
-
-    "ACTUACIÓN POLICIAL:\n"
-    "- Debes usar fórmulas reales:\n"
-    "  'Que se realiza reportaje fotográfico...'\n"
-    "  'Que se informa a las partes...'\n"
-    "  'Que se practican gestiones...'\n\n"
+    "ESTRUCTURA:\n"
+    "- Inicio con recepción de aviso o actuación directa.\n"
+    "- Personación de la patrulla.\n"
+    "- Identificación de la situación.\n"
+    "- Manifestaciones de las partes implicadas (si las hay).\n"
+    "- Actuaciones realizadas.\n"
+    "- Situación final o medidas adoptadas.\n\n"
 
     "ESTILO:\n"
-    "- Redacción limpia, continua y profesional.\n"
-    "- Sin lenguaje administrativo genérico.\n"
-    "- Sin tono explicativo ni narrativo tipo relato.\n"
-    "- Debe parecer redactado por un policía en Jefatura.\n\n"
+    "- Redacción objetiva, sin valoraciones personales.\n"
+    "- Lenguaje claro y profesional.\n"
+    "- No inventar datos.\n"
+    "- Si un dato no consta, se omite.\n"
+    "- No escribir 'No consta'.\n"
+    "- No usar expresiones como 'Se observa que', usar siempre 'Que'.\n\n"
 
-    "CIERRE OBLIGATORIO:\n"
-    "- Debes finalizar SIEMPRE con:\n"
+    "IDENTIFICACIÓN DE PERSONAS:\n"
+    "- No debes incluir datos personales en el texto (DNI, teléfonos, direcciones completas).\n"
+    "- Debes referirte a las personas como:\n"
+    "  - 'Filiado A', 'Filiado B', 'Filiado C' (hombres)\n"
+    "  - 'Filiada A', 'Filiada B', 'Filiada C' (mujeres)\n"
+    "- Debes asignar las letras en orden de aparición.\n"
+    "- Debes mantener la misma referencia durante todo el informe.\n"
+    "- No mezclar nombres reales con filiaciones.\n\n"
+
+    "MANIFESTACIONES:\n"
+    "- Usar formato técnico:\n"
+    "  'Que PREGUNTADO...', 'MANIFIESTA que...'\n"
+    "- No mezclar versiones.\n\n"
+
+    "ACTUACIONES POLICIALES:\n"
+    "- Incluir actuaciones reales si aparecen:\n"
+    "  - identificación\n"
+    "  - entrevistas\n"
+    "  - traslado\n"
+    "  - aviso a servicios\n"
+    "  - reportaje fotográfico\n\n"
+
+    "CIERRE:\n"
+    "- Finalizar obligatoriamente con:\n"
     "  'Que se procede a la elaboración del presente informe a los efectos oportunos.'\n\n"
 
-    "PROHIBICIONES ABSOLUTAS:\n"
-    "- No escribir 'Atentamente'.\n"
-    "- No añadir firmas.\n"
-    "- No añadir nombres de agentes.\n"
-    "- No añadir NIP al final.\n"
-    "- No usar '[Nombre del agente]'.\n"
-    "- No usar 'Sin más...'.\n"
-    "- No usar lenguaje de IA.\n\n"
-
-    "TRATAMIENTO DE PERSONAS:\n"
-    "- Todas las personas como 'D.' o 'Dña.' + nombre completo.\n"
-    "- NO incluir DNI ni teléfono.\n"
-    "- Los agentes solo por NIP.\n\n"
-
-    "TIEMPO VERBAL:\n"
-    "- Siempre en presente policial: 'se persona', 'manifiesta', 'se informa'.\n"
-    "- Nunca en pasado.\n\n"
-
-    "DATOS:\n"
-    "- No inventar datos.\n"
-    "- Si no consta, se omite.\n"
-    "- Nunca escribir 'No consta'.\n\n"
+    "IMPORTANTE:\n"
+    "- No incluir firmas.\n"
+    "- No incluir nombres de agentes.\n"
+    "- No añadir información que no esté en los datos proporcionados.\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
-    + BLOQUE_CONTEXTO_JEFATURA
 )
 
 PROMPT_PARTE_SERVICIO = (
-    "Eres un asistente de redacción policial para la Policía Local de Poio. Debes redactar un PARTE DE SERVICIO interno, en castellano, con tono formal, claro, objetivo y operativo. "
-    "Integra hora del aviso y hora de personación si constan.\n\n"
-    + BLOQUE_TIEMPO_PRESENTE
-    + "\n"
-    + TRATAMIENTO_PERSONAS_GENERAL
-    + "\n"
+    "Eres un asistente de redacción policial para la Policía Local.\n\n"
+
+    "Debes redactar un PARTE DE SERVICIO en castellano, en estilo técnico, claro, objetivo y en prosa.\n"
+    "Todos los párrafos deben comenzar obligatoriamente por 'Que'.\n\n"
+
+    "FINALIDAD:\n"
+    "- Dejar constancia de una actuación policial.\n"
+    "- Recoger hechos, manifestaciones y actuaciones sin calificación jurídica.\n\n"
+
+    "ESTRUCTURA:\n"
+    "- Recepción de aviso o actuación directa.\n"
+    "- Personación de la patrulla.\n"
+    "- Descripción de lo observado.\n"
+    "- Manifestaciones de las personas implicadas.\n"
+    "- Actuaciones realizadas.\n\n"
+
+    "ESTILO:\n"
+    "- Redacción objetiva y cronológica.\n"
+    "- No valorar ni interpretar.\n"
+    "- No inventar datos.\n"
+    "- Si un dato no consta, se omite.\n\n"
+
+    "MANIFESTACIONES:\n"
+    "- Usar formato técnico:\n"
+    "  'Que PREGUNTADO...', 'MANIFIESTA que...'\n\n"
+
+    "CIERRE:\n"
+    "- Finalizar con:\n"
+    "  'Que se procede a la confección del presente parte de servicio a los efectos oportunos.'\n\n"
+
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
 PROMPT_ANOMALIA = (
-    "Eres un asistente de redacción policial para la Policía Local de Poio. Debes redactar una ANOMALÍA o comunicación breve de incidencia en vía pública o elementos urbanos, en castellano, con tono claro, breve, técnico y operativo. "
-    "Integra hora del aviso y hora de personación si constan.\n\n"
-    + BLOQUE_TIEMPO_PRESENTE
-    + "\n"
-    + TRATAMIENTO_PERSONAS_GENERAL
-    + "\n"
+    "Eres un asistente de redacción policial.\n\n"
+
+    "Debes redactar una ANOMALÍA en castellano, breve, clara y técnica.\n"
+    "Todos los párrafos deben comenzar por 'Que'.\n\n"
+
+    "FINALIDAD:\n"
+    "- Dejar constancia de una incidencia concreta en vía pública o inmueble.\n"
+    "- Reflejar riesgo o problema detectado.\n\n"
+
+    "ESTRUCTURA:\n"
+    "- Recepción de aviso o detección.\n"
+    "- Localización exacta.\n"
+    "- Descripción del problema.\n"
+    "- Riesgo existente.\n"
+    "- Actuaciones realizadas.\n\n"
+
+    "ESTILO:\n"
+    "- Muy directo.\n"
+    "- Sin narrativa innecesaria.\n"
+    "- No inventar.\n\n"
+
+    "CIERRE:\n"
+    "- 'Que se pone en conocimiento a los efectos oportunos.'\n\n"
+
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
@@ -936,6 +920,26 @@ CAMPOS_INFORME_JUZGADO = [
     "Observaciones adicionales",
 ]
 
+CAMPOS_DENUNCIA_ADMINISTRATIVA = [
+    "Fecha",
+    "Hora",
+    "Lugar",
+    "Agentes actuantes (NIP)",
+    "Indicativo policial",
+    "Origen de la actuación",
+    "Persona denunciada / responsable",
+    "DNI persona denunciada / responsable",
+    "Teléfono persona denunciada / responsable",
+    "Norma administrativa aplicada",
+    "Precepto o artículo (si se conoce)",
+    "Hecho observado",
+    "Requerimientos realizados por los agentes",
+    "Respuesta o actitud de la persona",
+    "Actuaciones policiales realizadas",
+    "Testigos (si los hubiere)",
+    "Documentación / reportaje fotográfico",
+    "Observaciones adicionales",
+]
 
 # =========================================================
 # OPCIONES DE SELECT
@@ -1217,32 +1221,12 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
             )
 
         else:
-            campo_lower = campo.lower()
-
-            # CAMPOS LARGOS (solo los realmente narrativos)
-            if any(x in campo_lower for x in [
-                "relato",
-                "versión",
-                "observaciones",
-                "actuaciones",
-                "descripción",
-                "análisis",
-                "conclusión",
-            ]):
-                valor = st.text_area(
-                    campo,
-                    value=st.session_state.get(clave_widget, st.session_state.get(clave, "")),
-                    key=clave_widget,
-                    height=100,
-                )
-
-            # TODO LO DEMÁS → INPUT PEQUEÑO
-            else:
-                valor = st.text_input(
-                    campo,
-                    value=st.session_state.get(clave_widget, st.session_state.get(clave, "")),
-                    key=clave_widget,
-                )
+            valor = st.text_area(
+                campo,
+                value=st.session_state.get(clave_widget, st.session_state.get(clave, "")),
+                key=clave_widget,
+                height=80,
+            )
 
         st.session_state[clave] = valor
         datos[campo] = valor
@@ -1701,58 +1685,37 @@ def tarjeta_modulo_movil(titulo: str, subtitulo: str, icono: str, clave: str, de
 def selector_modulo_movil() -> str:
     st.markdown("## 🚓 Modo patrulla")
 
-    st.markdown("""
-    <style>
-    .modulo-btn {
-        width: 100%;
-        height: 120px;
-        border-radius: 20px;
-        border: 1px solid rgba(128,128,128,0.2);
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        font-size: 20px;
-        font-weight: 700;
-        cursor: pointer;
-        margin-bottom: 10px;
-        background-color: #ffffff10;
-        transition: 0.2s;
-    }
-
-    .modulo-btn:hover {
-        background-color: #1f77b420;
-        transform: scale(1.02);
-    }
-
-    .modulo-icon {
-        font-size: 34px;
-        margin-bottom: 6px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2, gap="large")
 
     with col1:
-        if st.button("🚗\nAccidente", key="movil_accidente"):
+        if st.button("🚗\nAccidente", key="movil_accidente", use_container_width=True):
             st.session_state["pagina_movil"] = "Accidente"
+            st.rerun()
 
-        if st.button("🏛️\nInforme municipal", key="movil_municipal"):
+        if st.button("🏛️\nInforme municipal", key="movil_municipal", use_container_width=True):
             st.session_state["pagina_movil"] = "Informe municipal"
+            st.rerun()
 
-        if st.button("⚠️\nAnomalía", key="movil_anomalia"):
+        if st.button("⚠️\nAnomalía", key="movil_anomalia", use_container_width=True):
             st.session_state["pagina_movil"] = "Anomalía"
+            st.rerun()
+
+        if st.button("📋\nDenuncia administrativa", key="movil_denuncia_admin", use_container_width=True):
+            st.session_state["pagina_movil"] = "Denuncia administrativa"
+            st.rerun()
 
     with col2:
-        if st.button("📄\nAtestado", key="movil_atestado"):
+        if st.button("📄\nAtestado", key="movil_atestado", use_container_width=True):
             st.session_state["pagina_movil"] = "Atestado completo"
+            st.rerun()
 
-        if st.button("📝\nParte de servicio", key="movil_servicio"):
+        if st.button("📝\nParte de servicio", key="movil_servicio", use_container_width=True):
             st.session_state["pagina_movil"] = "Parte de servicio"
+            st.rerun()
 
-        if st.button("⚖️\nInformes al juzgado", key="movil_juzgado"):
+        if st.button("⚖️\nInformes al juzgado", key="movil_juzgado", use_container_width=True):
             st.session_state["pagina_movil"] = "Informes al juzgado"
+            st.rerun()
 
     return st.session_state.get("pagina_movil", "Inicio")
 
@@ -1848,6 +1811,24 @@ MODULOS = {
         "texto_boton_generar": "Generar informe al juzgado",
         "texto_boton_regenerar": "Regenerar informe al juzgado",
         "spinner_texto": "Generando informe al juzgado...",
+        "transformar_datos": None,
+    },
+
+    "Denuncia administrativa": {
+        "tipo": "simple",
+        "key_prefix": "denuncia_admin",
+        "titulo": "Denuncia administrativa",
+        "icono": "📋",
+        "tipo_documento": "Denuncia administrativa",
+        "campos": CAMPOS_DENUNCIA_ADMINISTRATIVA,
+        "prompt": PROMPT_DENUNCIA_ADMINISTRATIVA,
+        "resultado_key": "resultado_denuncia_admin",
+        "datos_key": "datos_denuncia_admin",
+        "prefijo_guardado": "denuncia_administrativa",
+        "modo_key": "modo_denuncia_admin",
+        "texto_boton_generar": "Generar descripción de hechos",
+        "texto_boton_regenerar": "Regenerar descripción de hechos",
+        "spinner_texto": "Generando descripción de hechos...",
         "transformar_datos": None,
     },
 }
@@ -1990,6 +1971,7 @@ modulos_orden = [
     "Parte de servicio",
     "Anomalía",
     "Informes al juzgado",
+    "Denuncia administrativa",
 ]
 
 if modo_patrulla:
@@ -2007,7 +1989,7 @@ if modo_patrulla:
 else:
     pagina = st.sidebar.radio("Módulos", modulos_orden)
 
-st.title("🚓 Policía IA - Policía Local de Poio")
+st.title("🚓 Policía Local IA")
 st.write("App web operativa para ordenador y móvil, con redacción policial, dictado a campos.")
 
 if not api_key:
