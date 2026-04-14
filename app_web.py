@@ -340,31 +340,6 @@ def generar_texto_con_ia(api_key: str, prompt_sistema: str, datos_usuario: str) 
 
 
 # =========================================================
-# MODOS DE REDACCIÓN
-# =========================================================
-
-def obtener_instruccion_modo_redaccion(modo_redaccion: str) -> str:
-    if modo_redaccion == "Ampliado":
-        return (
-            "MODO AMPLIADO:\n"
-            "- Debes desarrollar de forma detallada todos los apartados.\n"
-            "- La descripción de la vía debe ampliarse con elementos neutros: señalización, visibilidad, anchura, márgenes, etc, SIN INVENTAR DATOS ESPECÍFICOS.\n"
-            "- La dinámica del accidente debe explicarse de forma completa, incluyendo trayectorias, posiciones relativas y secuencia del impacto.\n"
-            "- Las actuaciones policiales deben redactarse de forma técnica y desarrollada, no enumeradas ni literales.\n"
-            "- Debes evitar frases cortas o simples.\n"
-            "- Debes redactar como un informe técnico completo, no básico.\n"
-        )
-
-    return (
-        "MODO TÉCNICO:\n"
-        "- Debes redactar de forma concisa y directa.\n"
-        "- No desarrolles en exceso la vía ni las circunstancias.\n"
-        "- La dinámica debe explicarse de forma clara pero breve.\n"
-        "- Las actuaciones deben resumirse sin desarrollo innecesario.\n"
-    )
-
-
-# =========================================================
 # PROMPTS BASE
 # =========================================================
 
@@ -462,11 +437,6 @@ PROMPT_ACCIDENTE = (
 
     + BLOQUE_TIEMPO_PRESENTE + "\n"
     + TRATAMIENTO_PERSONAS_GENERAL + "\n"
-
-    "MODO DE REDACCIÓN:\n"
-    "- Debes aplicar estrictamente el modo de redacción indicado en los datos.\n"
-    "- En modo ampliado, la redacción debe ser más desarrollada en todos los apartados.\n"
-    "- En modo técnico, la redacción debe ser más concisa y directa.\n\n"
 
     "TRATAMIENTO TEMPORAL:\n"
     "- Debes diferenciar claramente entre la fecha y hora del accidente, la fecha y hora del aviso, la comparecencia en dependencias y la personación de los agentes, si constan.\n"
@@ -1164,7 +1134,6 @@ def pagina_informe_municipal(api_key: str):
     cabecera_modulo("Informe municipal", "🏛️")
 
     bloque_texto_a_campos(api_key, "municipal", "Informe municipal", CAMPOS_INFORME_MUNICIPAL)
-    modo_redaccion = selector_modo_redaccion("modo_municipal", "municipal")
     origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
 
 
@@ -1229,11 +1198,7 @@ def pagina_informe_municipal(api_key: str):
         regenerar = st.button("Regenerar informe municipal", key="btn_regenerar_municipal")
 
     if generar or regenerar:
-        prompt_final = (
-            PROMPT_INFORME_MUNICIPAL
-            + "\n\n"
-            + obtener_instruccion_modo_redaccion(modo_redaccion)
-        )
+        prompt_final = PROMPT_INFORME_MUNICIPAL
 
         bloque = construir_bloque_usuario_con_contexto(
             datos,
@@ -1300,16 +1265,6 @@ def cabecera_modulo(titulo: str, icono: str):
         </div>
         """,
         unsafe_allow_html=True,
-    )
-
-
-def selector_modo_redaccion(clave: str, modulo: str) -> str:
-    pagina_actual = st.session_state.get("pagina_movil", "normal")
-    return st.selectbox(
-        "Modo de redacción",
-        ["Técnico", "Ampliado"],
-        index=0,
-        key=f"{clave}_{modulo}_{pagina_actual}",
     )
 
 
@@ -1695,7 +1650,6 @@ def generar_modulo_simple(
     resultado_key: str,
     datos_key: str,
     prefijo_guardado: str,
-    modo_key: str,
     texto_boton_generar: str,
     texto_boton_regenerar: str,
     spinner_texto: str,
@@ -1704,8 +1658,6 @@ def generar_modulo_simple(
     cabecera_modulo(titulo, icono)
 
     bloque_texto_a_campos(api_key, key_prefix, tipo_documento, campos)
-
-    modo_redaccion = selector_modo_redaccion(modo_key, key_prefix)
 
     origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
 
@@ -1733,7 +1685,7 @@ def generar_modulo_simple(
         regenerar = st.button(texto_boton_regenerar, key=f"btn_regenerar_{key_prefix}")
 
     if generar or regenerar:
-        prompt_final = prompt_base + "\n\n" + obtener_instruccion_modo_redaccion(modo_redaccion)
+        prompt_final = prompt_base
         bloque = construir_bloque_usuario_con_contexto(
             datos,
             origen_actuacion,
@@ -1762,8 +1714,6 @@ def pagina_atestado(api_key: str):
     cabecera_modulo("Atestado completo", "📄")
     
     bloque_texto_a_campos(api_key, "atestado", "Atestado completo", CAMPOS_ATESTADO_COMPLETO)
-    
-    modo_redaccion = selector_modo_redaccion("modo_atestado", "atestado")
     origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
 
     col_tools_1, col_tools_2 = st.columns(2)
@@ -1787,12 +1737,11 @@ def pagina_atestado(api_key: str):
             origen_actuacion,
             intervencion_presencial,
         )
-        instruccion = obtener_instruccion_modo_redaccion(modo_redaccion)
         debug_log("DATOS PARA IA ATESTADO", bloque)
 
         with st.spinner("Generando exposición e inspección ocular..."):
-            exposicion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_EXPOSICION + "\n\n" + instruccion, bloque)
-            inspeccion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_INSPECCION + "\n\n" + instruccion, bloque)
+            exposicion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_EXPOSICION, bloque)
+            inspeccion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_INSPECCION, bloque)
             documento = "===== EXPOSICIÓN DE HECHOS =====\n\n" + exposicion + "\n\n===== INSPECCIÓN OCULAR =====\n\n" + inspeccion
 
         st.session_state["resultado_atestado"] = documento
@@ -1890,7 +1839,6 @@ MODULOS = {
         "resultado_key": "resultado_accidente",
         "datos_key": "datos_accidente",
         "prefijo_guardado": "accidente",
-        "modo_key": "modo_accidente",
         "texto_boton_generar": "Generar informe de accidente",
         "texto_boton_regenerar": "Regenerar informe de accidente",
         "spinner_texto": "Generando informe...",
@@ -1910,7 +1858,6 @@ MODULOS = {
         "resultado_key": "resultado_municipal",
         "datos_key": "datos_municipal",
         "prefijo_guardado": "informe_municipal",
-        "modo_key": "modo_municipal",
         "texto_boton_generar": "Generar informe municipal",
         "texto_boton_regenerar": "Regenerar informe municipal",
         "spinner_texto": "Generando informe...",
@@ -1927,7 +1874,6 @@ MODULOS = {
         "resultado_key": "resultado_servicio",
         "datos_key": "datos_servicio",
         "prefijo_guardado": "parte_servicio",
-        "modo_key": "modo_servicio",
         "texto_boton_generar": "Generar parte de servicio",
         "texto_boton_regenerar": "Regenerar parte de servicio",
         "spinner_texto": "Generando parte...",
@@ -1944,7 +1890,6 @@ MODULOS = {
         "resultado_key": "resultado_anomalia",
         "datos_key": "datos_anomalia",
         "prefijo_guardado": "anomalia",
-        "modo_key": "modo_anomalia",
         "texto_boton_generar": "Generar anomalía",
         "texto_boton_regenerar": "Regenerar anomalía",
         "spinner_texto": "Generando anomalía...",
@@ -1961,7 +1906,6 @@ MODULOS = {
         "resultado_key": "resultado_juzgado",
         "datos_key": "datos_juzgado",
         "prefijo_guardado": "informe_juzgado",
-        "modo_key": "modo_juzgado",
         "texto_boton_generar": "Generar informe al juzgado",
         "texto_boton_regenerar": "Regenerar informe al juzgado",
         "spinner_texto": "Generando informe al juzgado...",
@@ -1979,7 +1923,6 @@ MODULOS = {
         "resultado_key": "resultado_denuncia_admin",
         "datos_key": "datos_denuncia_admin",
         "prefijo_guardado": "denuncia_administrativa",
-        "modo_key": "modo_denuncia_admin",
         "texto_boton_generar": "Generar descripción de hechos",
         "texto_boton_regenerar": "Regenerar descripción de hechos",
         "spinner_texto": "Generando descripción de hechos...",
@@ -2172,7 +2115,6 @@ else:
             resultado_key=config["resultado_key"],
             datos_key=config["datos_key"],
             prefijo_guardado=config["prefijo_guardado"],
-            modo_key=config["modo_key"],
             texto_boton_generar=config["texto_boton_generar"],
             texto_boton_regenerar=config["texto_boton_regenerar"],
             spinner_texto=config["spinner_texto"],
