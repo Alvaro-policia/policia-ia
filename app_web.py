@@ -167,6 +167,8 @@ def normalizar_valor_select(campo: str, valor: str) -> str:
             return "Simple"
         if "complej" in valor_limpio:
             return "Complejo"
+        if "multip" in valor_limpio:
+            return "Múltiple"
         return ""
 
     if campo == "Reportaje fotográfico (sí/no)":
@@ -267,17 +269,46 @@ def ajustar_datos_accidente_por_tipo(datos: dict) -> dict:
         for campo in campos_a_vaciar:
             datos[campo] = ""
 
+    elif tipo == "complejo":
+        campos_a_vaciar = [
+            "Vehículo C - matrícula",
+            "Vehículo C - marca",
+            "Vehículo C - modelo",
+            "Vehículo C - color",
+            "Conductor vehículo C",
+            "DNI conductor vehículo C",
+            "Teléfono conductor vehículo C",
+            "Pasajeros vehículo C (indicar posición)",
+            "DNI pasajeros vehículo C",
+            "Teléfono pasajeros vehículo C",
+            "Más implicados (si hubiere)",
+            "DNI más implicados",
+            "Teléfono más implicados",
+        ]
+        for campo in campos_a_vaciar:
+            datos[campo] = ""
+
+    elif tipo == "múltiple" or tipo == "multiple":
+        pass
+
     return datos
 
 
-def construir_bloque_usuario(datos: dict) -> str:
-    bloque = []
+def construir_bloque_usuario_con_contexto(
+    datos: dict,
+    origen_actuacion: str,
+    intervencion_presencial: str,
+) -> str:
+    if not isinstance(datos, dict):
+        datos = {}
 
-    for k, v in datos.items():
-        if str(v).strip():
-            bloque.append(f"{k}: {v}")
+    bloque = [
+        f"Origen de la actuación: {origen_actuacion}",
+        f"Intervención presencial en el lugar: {intervencion_presencial}",
+    ]
 
-    # 🔥 AÑADIMOS INTELIGENCIA PARA EL ALERTANTE
+    bloque.extend([f"{k}: {v}" for k, v in datos.items() if str(v).strip()])
+
     if datos.get("DNI del alertante o requirente"):
         bloque.append("Alertante identificado previamente: Sí")
     else:
@@ -315,13 +346,21 @@ def generar_texto_con_ia(api_key: str, prompt_sistema: str, datos_usuario: str) 
 def obtener_instruccion_modo_redaccion(modo_redaccion: str) -> str:
     if modo_redaccion == "Ampliado":
         return (
-            "Redacta de forma detallada, desarrollando las actuaciones policiales, la descripción del lugar, la dinámica y los daños observados, "
-            "manteniendo un lenguaje técnico policial. NO inventes datos. Si un dato no consta, omítelo del texto o déjalo en blanco si se trata de un campo."
+            "MODO AMPLIADO:\n"
+            "- Debes desarrollar de forma detallada todos los apartados.\n"
+            "- La descripción de la vía debe ampliarse con elementos neutros: señalización, visibilidad, anchura, márgenes, etc, SIN INVENTAR DATOS ESPECÍFICOS.\n"
+            "- La dinámica del accidente debe explicarse de forma completa, incluyendo trayectorias, posiciones relativas y secuencia del impacto.\n"
+            "- Las actuaciones policiales deben redactarse de forma técnica y desarrollada, no enumeradas ni literales.\n"
+            "- Debes evitar frases cortas o simples.\n"
+            "- Debes redactar como un informe técnico completo, no básico.\n"
         )
 
     return (
-        "Redacta con lenguaje técnico, formal y preciso, propio de documentos policiales. "
-        "NO inventes datos. Si un dato no consta, omítelo del texto o déjalo en blanco si se trata de un campo."
+        "MODO TÉCNICO:\n"
+        "- Debes redactar de forma concisa y directa.\n"
+        "- No desarrolles en exceso la vía ni las circunstancias.\n"
+        "- La dinámica debe explicarse de forma clara pero breve.\n"
+        "- Las actuaciones deben resumirse sin desarrollo innecesario.\n"
     )
 
 
@@ -379,6 +418,16 @@ PROMPT_DENUNCIA_ADMINISTRATIVA = (
     "FINALIDAD:\n"
     "- Describir una conducta susceptible de sanción administrativa.\n\n"
 
+    "ORIGEN DE LA ACTUACIÓN:\n"
+    "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
+    "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
+    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar el relato como recepción de llamada o aviso.\n"
+    "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
+    "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los actuantes agentes observan...'.\n"
+    "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
+    "- Si no existe intervención presencial, no debes simular personación policial en el lugar.\n"
+    "- Si existe intervención presencial, debes integrarla de forma cronológica y coherente.\n\n"
+
     "ESTRUCTURA:\n"
     "- Actuación policial.\n"
     "- Identificación de la persona.\n"
@@ -414,20 +463,44 @@ PROMPT_ACCIDENTE = (
     + BLOQUE_TIEMPO_PRESENTE + "\n"
     + TRATAMIENTO_PERSONAS_GENERAL + "\n"
 
+    "MODO DE REDACCIÓN:\n"
+    "- Debes aplicar estrictamente el modo de redacción indicado en los datos.\n"
+    "- En modo ampliado, la redacción debe ser más desarrollada en todos los apartados.\n"
+    "- En modo técnico, la redacción debe ser más concisa y directa.\n\n"
+
     "TRATAMIENTO TEMPORAL:\n"
     "- Debes diferenciar claramente entre la fecha y hora del accidente, la fecha y hora del aviso, la comparecencia en dependencias y la personación de los agentes, si constan.\n"
     "- Si el accidente se comunica con posterioridad a su ocurrencia, debes dejarlo claro en la redacción.\n"
     "- No debes confundir la hora del accidente con la del aviso, la comparecencia o la personación policial.\n\n"
+
+    "ORIGEN DE LA ACTUACIÓN:\n"
+    "- Debes atender obligatoriamente al campo 'Origen de la actuación'.\n"
+    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar con 'Que se recibe aviso...'.\n"
+    "- Si el origen es 'Comparecencia en jefatura', debes iniciar como comparecencia en dependencias.\n"
+    "- Si el origen es 'Actuación de oficio', está prohibido indicar que se recibe aviso o llamada.\n"
+    "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes observan...'.\n"
+    "- Debes atender también al campo 'Intervención presencial en el lugar'.\n"
+    "- Si NO existe intervención presencial, no debes simular que los agentes se personan en el lugar.\n"
+    "- Si SÍ existe intervención, debes integrarla de forma cronológica coherente tras el inicio.\n\n"
 
     "INTERVENCIÓN POLICIAL:\n"
     "- Si existe personación en el lugar, debes integrar la intervención de los agentes con fórmula técnica policial.\n"
     "- Si la actuación se inicia por comparecencia posterior en dependencias, debes reflejarlo con naturalidad y sin simular una intervención inmediata en vía pública.\n"
     "- Si se practican gestiones posteriores, debes integrarlas de forma ordenada.\n\n"
 
+    "ACTUACIONES POLICIALES:\n"
+    "- Debes redactar las actuaciones en lenguaje técnico-policial real.\n"
+    "- Está prohibido usar expresiones genéricas como 'gestiones pertinentes'.\n"
+    "- Debes describir las actuaciones concretas realizadas por los agentes.\n"
+    "- Las actuaciones deben integrarse en la narrativa, no enumerarse.\n\n"
+   
+
     "TIPO DE ACCIDENTE E IMPLICADOS:\n"
     "- Debes atender al tipo de accidente indicado.\n"
     "- Si es SIMPLE, solo debes usar vehículo A y los implicados asociados al mismo, además de peatones o testigos si constan.\n"
-    "- Si es COMPLEJO, debes estructurar técnicamente los implicados por vehículo.\n"
+    "- Si es COMPLEJO, debes estructurar los implicados por vehículos A y B.\n"
+    "- Si es MÚLTIPLE, debes estructurar los implicados por vehículo A, B, C y más implicados si los hubiere.\n"
+    "- Debes mantener orden técnico en la identificación de todos los implicados.\n"
     "- No menciones personas o vehículos cuyos campos estén vacíos.\n\n"
 
     "VEHÍCULOS Y VÍA:\n"
@@ -435,26 +508,55 @@ PROMPT_ACCIDENTE = (
     "- No utilices tipos genéricos como si fueran marca.\n"
     "- Debes describir tipo de vía, condiciones del firme y meteorología si constan.\n"
     "- El sentido ascendente o descendente se refiere exclusivamente a la numeración de la vía, no a la pendiente del terreno.\n\n"
+    "- Debes incluir elementos habituales como visibilidad, amplitud de la vía, señalización horizontal y vertical, y configuración del entorno, siempre de forma neutra.\n\n"
+
+    "OBJETIVIDAD TÉCNICA:\n"
+    "- La descripción debe ser objetiva y basada en hechos observables.\n"
+    "- No debes incluir valoraciones subjetivas ni explicaciones innecesarias.\n"
+    "- Debes describir las condiciones de la vía sin justificar ni interpretar.\n"
+    "- Está prohibido añadir consecuencias o valoraciones como 'lo que favorece la visibilidad'.\n"
+    "- Debes limitarte a describir el estado real de la vía.\n\n"
+
+    "DESCRIPCIÓN DE LA VÍA (IMPORTANTE):\n"
+    "- Debes ampliar la descripción con elementos técnicos habituales aunque no consten expresamente.\n"
+    "- Puedes incluir de forma neutra: visibilidad, señalización horizontal/vertical, anchura suficiente, configuración típica.\n"
+    "- No debes inventar datos concretos no facilitados (como señales específicas inexistentes).\n"
+    "- Debes evitar descripciones pobres o excesivamente breves.\n\n"
+
+    "PROHIBICIONES EXPRESAS (OBLIGATORIO):\n"
+    "- Está prohibido utilizar expresiones genéricas como:\n"
+    "  'no ir atento', 'conducción negligente', 'gestiones pertinentes', 'lo que favorece', 'se observa que'.\n"
+    "- Está prohibido redactar de forma vaga o imprecisa.\n"
+    "- Toda la redacción debe tener contenido técnico real.\n\n"
 
     "DINÁMICA DEL SINIESTRO:\n"
-    "- Debes reconstruir técnicamente la dinámica del accidente.\n"
-    "- Debes diferenciar entre hechos observados, manifestaciones de los implicados y conclusión técnica.\n"
-    "- No debes atribuir la dinámica de forma literal a lo manifestado por las partes.\n"
-    "- Debes apoyarte en daños, posiciones, configuración de la vía y demás datos objetivos facilitados.\n"
-    "- Debes concretar la maniobra o mecanismo del siniestro: alcance, marcha atrás, giro, incorporación, invasión de trayectoria, estacionamiento antirreglamentario u otros, si constan.\n\n"
+    "- Debes reconstruir el accidente de forma técnica completa.\n"
+    "- Debes describir:\n"
+    "  1. Situación previa de los vehículos.\n"
+    "  2. Maniobra realizada.\n"
+    "  3. Punto exacto de impacto.\n"
+    "  4. Posición final.\n"
+    "- Debes basarte en daños y configuración de la vía.\n"
+    "- No puedes usar causas genéricas.\n"
+    "- Debes describir únicamente hechos técnicos, no valoraciones.\n"
+    "- La causa debe deducirse de la maniobra, no afirmarse directamente.\n\n"
 
     "PASAJEROS Y PERSONAS IMPLICADAS:\n"
     "- Debes indicar la posición de los pasajeros si consta.\n"
     "- Si no consta, no la inventes.\n\n"
 
     "PRUEBAS DE ALCOHOLEMIA Y DROGAS:\n"
-    "- Si se realizan, debes redactarlo en términos técnicos y objetivos.\n"
-    "- Debes indicar resultados si constan.\n"
+    "- Debes indicar que, al tratarse de un accidente de circulación, se informa a los conductores de la obligatoriedad de someterse a las pruebas conforme al Real Decreto Legislativo 6/2015, artículo 14.\n"
+    "- Debes indicar resultados en mg/l si constan.\n"
     "- No debes afirmar infracción si no procede.\n\n"
 
     "CONCLUSIÓN:\n"
     "- La conclusión debe comenzar con: 'Que a la vista de todo lo expuesto, se concluye que...'.\n"
     "- Debe ser técnica, prudente y basada en los datos facilitados.\n\n"
+    "- Debes basarte en daños, manifestaciones y configuración de la vía.\n"
+    "- Debes explicar la dinámica antes de concluir.\n"
+    "- Evita conclusiones genéricas.\n"
+    "- Debe tener nivel técnico real de informe policial de tráfico.\n\n"
 
     "CIERRE:\n"
     "- Debes finalizar exactamente con: 'Y para que así conste, se extiende el presente informe técnico policial, que se emite en base a la inspección ocular, manifestaciones recabadas y análisis de las circunstancias concurrentes, quedando sometido a cualquier otro mejor fundado.'\n\n"
@@ -479,6 +581,16 @@ PROMPT_ATESTADO_EXPOSICION = (
     "FINALIDAD:\n"
     "- Relatar de forma cronológica, clara y objetiva la actuación policial.\n"
     "- Debes integrar aviso, intervención, manifestaciones, actuaciones y gestiones posteriores si constan.\n\n"
+
+    "ORIGEN DE LA ACTUACIÓN:\n"
+    "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
+    "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
+    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar el relato como recepción de llamada o aviso.\n"
+    "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
+    "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes observan...'.\n"
+    "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
+    "- Si no existe intervención presencial, no debes simular personación policial en el lugar.\n"
+    "- Si existe intervención presencial, debes integrarla de forma cronológica y coherente.\n\n"
 
     "INICIO:\n"
     "- Debes comenzar con una fórmula coherente con los datos facilitados, por ejemplo: "
@@ -565,6 +677,14 @@ PROMPT_INFORME_MUNICIPAL = (
     "- Reflejar situaciones administrativas o conflictos privados.\n"
     "- Posible uso posterior por parte del Concello o por particulares en vía civil.\n\n"
 
+    "ORIGEN DE LA ACTUACIÓN:\n"
+    "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
+    "- Si el origen es 'Comparecencia en jefatura', debes redactar el inicio como comparecencia en dependencias policiales.\n"
+    "- Si el origen es 'Llamada / aviso telefónico', debes redactar el inicio como recepción de llamada o aviso.\n"
+    "- Si el origen es 'Actuación de oficio', no debes indicar en ningún caso que se recibe llamada, aviso o requerimiento.\n"
+    "- En los supuestos de actuación de oficio, debes usar fórmulas como: 'Que realizando labores propias del cargo...' o 'Que los agentes actuantes observan...'.\n"
+    "- No debes mezclar 'actuación de oficio' con 'se recibe aviso'.\n\n"
+
     "ESTRUCTURA:\n"
     "- Inicio con recepción de aviso o actuación directa.\n"
     "- Personación de la patrulla.\n"
@@ -625,6 +745,16 @@ PROMPT_PARTE_SERVICIO = (
     "- Dejar constancia de una actuación policial.\n"
     "- Recoger hechos, manifestaciones y actuaciones sin calificación jurídica.\n\n"
 
+    "ORIGEN DE LA ACTUACIÓN:\n"
+    "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
+    "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
+    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar el relato como recepción de llamada o aviso.\n"
+    "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
+    "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes actuantes observan...'.\n"
+    "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
+    "- Si no existe intervención presencial, no debes simular personación policial en el lugar.\n"
+    "- Si existe intervención presencial, debes integrarla de forma cronológica y coherente.\n\n"
+
     "ESTRUCTURA:\n"
     "- Recepción de aviso o actuación directa.\n"
     "- Personación de la patrulla.\n"
@@ -645,7 +775,7 @@ PROMPT_PARTE_SERVICIO = (
     "CIERRE:\n"
     "- Finalizar con:\n"
     "  'Que se procede a la confección del presente parte de servicio a los efectos oportunos.'\n\n"
-
+    
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
@@ -658,6 +788,16 @@ PROMPT_ANOMALIA = (
     "FINALIDAD:\n"
     "- Dejar constancia de una incidencia concreta en vía pública o inmueble.\n"
     "- Reflejar riesgo o problema detectado.\n\n"
+
+    "ORIGEN DE LA ACTUACIÓN:\n"
+    "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
+    "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
+    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar el relato como recepción de llamada o aviso.\n"
+    "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
+    "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes actuantes observan...'.\n"
+    "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
+    "- Si no existe intervención presencial, no debes simular personación policial en el lugar.\n"
+    "- Si existe intervención presencial, debes integrarla de forma cronológica y coherente.\n\n"
 
     "ESTRUCTURA:\n"
     "- Recepción de aviso o detección.\n"
@@ -723,7 +863,6 @@ CAMPOS_ACCIDENTE = [
     "Hora del accidente",
     "Fecha del aviso",
     "Hora del aviso",
-    "Fecha de comparecencia en jefatura (si procede)",
     "Hora de comparecencia en jefatura (si procede)",
     "Fecha de personación de los agentes",
     "Hora de personación de los agentes",
@@ -811,9 +950,13 @@ CAMPOS_ACCIDENTE = [
 ]
 
 CAMPOS_ATESTADO_COMPLETO = [
-    "Fecha",
-    "Hora",
-    "Hora de personación",
+    "Fecha de inicio de diligencias",
+    "Fecha del hecho",
+    "Hora del hecho o franja horaria",
+    "Fecha de personación del denunciante en jefatura (si procede)",
+    "Hora de personación del denunciante en jefatura (si procede)",
+    "Fecha de personación de los agentes en el lugar",
+    "Hora de personación de los agentes en el lugar",
     "Lugar",
     "Agentes actuantes (NIP)",
     "Indicativo policial",
@@ -836,8 +979,9 @@ CAMPOS_ATESTADO_COMPLETO = [
 
 CAMPOS_INFORME_MUNICIPAL = [
     "Fecha",
-    "Hora",
-    "Hora de personación",
+    "Hora del aviso",
+    "Hora de personación de los agentes",
+    "Hora de personación del requirente/alertante en jefatura (si procede)",
     "Lugar",
     "Agentes",
     "Alertante o requirente",
@@ -858,8 +1002,9 @@ CAMPOS_INFORME_MUNICIPAL = [
 
 CAMPOS_PARTE_SERVICIO = [
     "Fecha",
-    "Hora",
-    "Hora de personación",
+    "Hora del aviso",
+    "Hora de personación de los agentes",
+    "Hora de personación del requirente/alertante en jefatura (si procede)",
     "Lugar",
     "Agentes",
     "Alertante o requirente",
@@ -877,8 +1022,9 @@ CAMPOS_PARTE_SERVICIO = [
 
 CAMPOS_ANOMALIA = [
     "Fecha",
-    "Hora",
-    "Hora de personación",
+    "Hora del aviso",
+    "Hora de personación de los agentes",
+    "Hora de personación del requirente/alertante en jefatura (si procede)",
     "Lugar exacto",
     "Agentes",
     "Alertante o requirente",
@@ -946,7 +1092,7 @@ CAMPOS_DENUNCIA_ADMINISTRATIVA = [
 # =========================================================
 
 OPCIONES_SELECT = {
-    "Tipo de accidente": ["", "Simple", "Complejo"],
+    "Tipo de accidente": ["", "Simple", "Complejo", "Múltiple"],
     "Sentido de la vía según numeración (vehículo A)": ["", "Ascendente", "Descendente"],
     "Condiciones meteorológicas": ["", "Despejado", "Soleado", "Nublado", "Lluvia", "Niebla", "Viento", "Otra"],
     "Reportaje fotográfico (sí/no)": ["", "Sí", "No"],
@@ -988,15 +1134,20 @@ def render_form_fields_grupo(titulo: str, campos: list[str], key_prefix: str) ->
     )
     return render_form_fields(campos, key_prefix)
 
-def selector_contexto_municipal(key_prefix: str) -> tuple[str, str]:
+def selector_contexto_actuacion_general(key_prefix: str) -> tuple[str, str]:
     col1, col2 = st.columns(2)
 
     with col1:
         origen = st.radio(
             "Origen de la actuación",
-            ["Comparecencia en jefatura", "Llamada / aviso telefónico", "Actuación de oficio"],
+            [
+                "Comparecencia en jefatura",
+                "Llamada / aviso telefónico",
+                "Actuación de oficio",
+            ],
             key=f"origen_actuacion_{key_prefix}",
         )
+
 
     with col2:
         intervencion = st.radio(
@@ -1007,18 +1158,6 @@ def selector_contexto_municipal(key_prefix: str) -> tuple[str, str]:
 
     return origen, intervencion
 
-def construir_bloque_usuario_municipal(datos: dict, origen_actuacion: str, intervencion_presencial: str) -> str:
-    bloque = [
-        f"Origen de la actuación: {origen_actuacion}",
-        f"Intervención presencial en el lugar: {intervencion_presencial}",
-    ]
-    bloque.extend([f"{k}: {v}" for k, v in datos.items() if str(v).strip()])
-    return "\n".join(bloque)
-
-    new_func(datos, bloque)
-
-def new_func(datos, bloque):
-    bloque.append(f"Alertante identificado previamente: {'Sí' if datos.get('DNI del alertante o requirente') else 'No'}")
 
 def pagina_informe_municipal(api_key: str):
     key_prefix = "municipal"
@@ -1026,7 +1165,7 @@ def pagina_informe_municipal(api_key: str):
 
     bloque_texto_a_campos(api_key, "municipal", "Informe municipal", CAMPOS_INFORME_MUNICIPAL)
     modo_redaccion = selector_modo_redaccion("modo_municipal", "municipal")
-    origen_actuacion, intervencion_presencial = selector_contexto_municipal(key_prefix)
+    origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
 
 
     col_tools_1, col_tools_2 = st.columns(2)
@@ -1096,7 +1235,7 @@ def pagina_informe_municipal(api_key: str):
             + obtener_instruccion_modo_redaccion(modo_redaccion)
         )
 
-        bloque = construir_bloque_usuario_municipal(
+        bloque = construir_bloque_usuario_con_contexto(
             datos,
             origen_actuacion,
             intervencion_presencial,
@@ -1119,19 +1258,6 @@ def pagina_informe_municipal(api_key: str):
             datos_key="datos_municipal",
         )
 
-def selector_contexto_actuacion(key_prefix: str) -> str:
-    return st.radio(
-        "Contexto de actuación",
-        ["Comparecencia en jefatura", "Intervención en vía pública"],
-        horizontal=True,
-        key=f"contexto_actuacion_{key_prefix}",
-    )
-
-
-def construir_bloque_usuario_con_contexto(datos: dict, contexto_actuacion: str) -> str:
-    bloque = [f"Contexto de actuación: {contexto_actuacion}"]
-    bloque.extend([f"{k}: {v}" for k, v in datos.items() if str(v).strip()])
-    return "\n".join(bloque)
 
 def debug_log(titulo: str, dato: Any):
     if st.session_state.get("debug_mode", False):
@@ -1194,20 +1320,10 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
         clave = f"{key_prefix}_{campo}"
         reset_version = get_reset_version(key_prefix)
         clave_widget = f"widget_{clave}_{reset_version}"
+        campo_lower = campo.lower()
 
-        if campo.lower() == "fecha":
-            valor_actual = st.session_state.get(clave_widget, st.session_state.get(clave, ""))
-            fecha_inicial = parsear_fecha(valor_actual) or datetime.today().date()
-
-            valor_widget = st.date_input(
-                campo,
-                value=fecha_inicial,
-                key=clave_widget,
-                format="DD/MM/YYYY",
-            )
-            valor = formatear_fecha(valor_widget)
-
-        elif campo in OPCIONES_SELECT:
+        # ===== SELECTS =====
+        if campo in OPCIONES_SELECT:
             opciones = OPCIONES_SELECT[campo]
             valor_actual = st.session_state.get(clave_widget, st.session_state.get(clave, ""))
             valor_actual = normalizar_valor_select(campo, str(valor_actual))
@@ -1220,12 +1336,44 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
                 key=clave_widget,
             )
 
+        # ===== CAMPOS CORTOS =====
+        elif any(x in campo_lower for x in [
+            "fecha",
+            "hora",
+            "dni",
+            "teléfono",
+            "telefono",
+            "nip",
+            "matrícula",
+            "matricula",
+            "marca",
+            "modelo",
+            "color",
+            "lugar",
+            "indicativo",
+            "órgano judicial",
+            "organo judicial",
+            "procedimiento",
+            "asunto",
+            "tipo de informe al juzgado",
+            "tipo de anomalía",
+            "norma administrativa aplicada",
+            "precepto o artículo",
+            "precepto o articulo",
+        ]):
+            valor = st.text_input(
+                campo,
+                value=st.session_state.get(clave_widget, st.session_state.get(clave, "")),
+                key=clave_widget,
+            )
+
+        # ===== CAMPOS LARGOS / NARRATIVOS =====
         else:
             valor = st.text_area(
                 campo,
                 value=st.session_state.get(clave_widget, st.session_state.get(clave, "")),
                 key=clave_widget,
-                height=80,
+                height=100,
             )
 
         st.session_state[clave] = valor
@@ -1246,20 +1394,13 @@ def aplicar_datos_a_session_state(datos_extraidos: dict, key_prefix: str):
 
         valor = "" if valor is None else str(valor).strip()
 
+        # Normalizar selects
         if campo in OPCIONES_SELECT:
             valor = normalizar_valor_select(campo, valor)
 
+        # Guardar directamente como texto
         st.session_state[clave_base] = valor
-
-        if campo.lower() == "fecha":
-            fecha_convertida = parsear_fecha(valor)
-            if fecha_convertida is not None:
-                st.session_state[clave_widget] = fecha_convertida
-            else:
-                if clave_widget in st.session_state:
-                    del st.session_state[clave_widget]
-        else:
-            st.session_state[clave_widget] = valor
+        st.session_state[clave_widget] = valor
 
 
 def resetear_formulario(key_prefix: str, claves_resultado: list[str] | None = None):
@@ -1566,18 +1707,22 @@ def generar_modulo_simple(
 
     modo_redaccion = selector_modo_redaccion(modo_key, key_prefix)
 
+    origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
+
     col_tools_1, col_tools_2 = st.columns(2)
     with col_tools_1:
         if st.button("🧹 Limpiar formulario", key=f"limpiar_{key_prefix}"):
             resetear_formulario(key_prefix, [resultado_key, datos_key])
             st.rerun()
     with col_tools_2:
-        st.caption("Usa el dictado o rellena los campos manualmente.")
+        st.caption("Pega un texto base o rellena los campos manualmente.")
 
     datos = render_form_fields(campos, key_prefix)
 
     if callable(transformar_datos):
-        datos = transformar_datos(datos)
+        datos_transformados = transformar_datos(datos)
+        if datos_transformados is not None:
+            datos = datos_transformados
 
     col1, col2 = st.columns(2)
 
@@ -1589,7 +1734,11 @@ def generar_modulo_simple(
 
     if generar or regenerar:
         prompt_final = prompt_base + "\n\n" + obtener_instruccion_modo_redaccion(modo_redaccion)
-        bloque = construir_bloque_usuario(datos)
+        bloque = construir_bloque_usuario_con_contexto(
+            datos,
+            origen_actuacion,
+            intervencion_presencial,
+        )
         debug_log("DATOS PARA IA", bloque)
 
         with st.spinner(spinner_texto):
@@ -1615,6 +1764,7 @@ def pagina_atestado(api_key: str):
     bloque_texto_a_campos(api_key, "atestado", "Atestado completo", CAMPOS_ATESTADO_COMPLETO)
     
     modo_redaccion = selector_modo_redaccion("modo_atestado", "atestado")
+    origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
 
     col_tools_1, col_tools_2 = st.columns(2)
     with col_tools_1:
@@ -1632,7 +1782,11 @@ def pagina_atestado(api_key: str):
         regenerar = st.button("Regenerar atestado", key="btn_regenerar_atestado")
 
     if generar or regenerar:
-        bloque = construir_bloque_usuario(datos)
+        bloque = construir_bloque_usuario_con_contexto(
+            datos,
+            origen_actuacion,
+            intervencion_presencial,
+        )
         instruccion = obtener_instruccion_modo_redaccion(modo_redaccion)
         debug_log("DATOS PARA IA ATESTADO", bloque)
 
@@ -1936,7 +2090,7 @@ def aplicar_estilos(modo_patrulla: bool):
 # APP PRINCIPAL
 # =========================================================
 
-st.sidebar.title("Policía IA")
+st.sidebar.title("Policía Local IA")
 st.sidebar.caption("Versión web para ordenador y móvil")
 
 modo_patrulla = st.sidebar.toggle("Modo patrulla / móvil", value=True)
@@ -1990,7 +2144,7 @@ else:
     pagina = st.sidebar.radio("Módulos", modulos_orden)
 
 st.title("🚓 Policía Local IA")
-st.write("App web operativa para ordenador y móvil, con redacción policial, dictado a campos.")
+st.write("App web operativa para ordenador y móvil, con redacción policial y autocompletado de campos desde texto.")
 
 if not api_key:
     st.info("Introduce tu API key en la barra lateral para empezar.")
