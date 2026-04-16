@@ -113,9 +113,9 @@ def capitalizar_si_corresponde(campo: str, valor: str) -> str:
         "agentes",
         "agentes actuantes",
         "indicativo policial",
-        "vehículo a - matrícula",
-        "vehículo b - matrícula",
-        "vehículo c - matrícula",
+        "vehículo a - clase y matrícula",
+        "vehículo b - clase y matrícula",
+        "vehículo c - clase y matrícula",
         "prueba de alcoholemia (indicar resultado o 'no procede')",
         "prueba de drogas (indicar resultado o 'no procede')",
     }
@@ -242,7 +242,7 @@ def ajustar_datos_accidente_por_tipo(datos: dict) -> dict:
 
     if tipo == "simple":
         campos_a_vaciar = [
-            "Vehículo B - matrícula",
+            "Vehículo B - clase y matrícula",
             "Vehículo B - marca",
             "Vehículo B - modelo",
             "Vehículo B - color",
@@ -252,7 +252,7 @@ def ajustar_datos_accidente_por_tipo(datos: dict) -> dict:
             "Pasajeros vehículo B (indicar posición)",
             "DNI pasajeros vehículo B",
             "Teléfono pasajeros vehículo B",
-            "Vehículo C - matrícula",
+            "Vehículo C - clase y matrícula",
             "Vehículo C - marca",
             "Vehículo C - modelo",
             "Vehículo C - color",
@@ -328,14 +328,19 @@ def get_client(api_key: str) -> OpenAI:
 
 def generar_texto_con_ia(api_key: str, prompt_sistema: str, datos_usuario: str) -> str:
     client = get_client(api_key)
+
+    # Añadimos bloque común de fidelidad y extensión a TODOS los prompts
+    prompt_final = prompt_sistema + "\n\n" + BLOQUE_FIDELIDAD_Y_EXTENSION
+
     respuesta = client.chat.completions.create(
         model="gpt-4o-mini",
-        temperature=0.15,
+        temperature=0.05,
         messages=[
-            {"role": "system", "content": prompt_sistema},
+            {"role": "system", "content": prompt_final},
             {"role": "user", "content": datos_usuario},
         ],
     )
+
     return respuesta.choices[0].message.content or ""
 
 
@@ -346,6 +351,21 @@ def generar_texto_con_ia(api_key: str, prompt_sistema: str, datos_usuario: str) 
 REGLAS_COMUNES_NO_INVENTAR = (
     "NO inventes datos en ningún caso. Usa exclusivamente la información facilitada por el usuario. "
     "Si un dato no consta, no lo completes ni lo deduzcas. Omítelo del texto o déjalo en blanco si procede."
+)
+
+BLOQUE_FIDELIDAD_Y_EXTENSION = (
+    "TEXTO BASE Y FIDELIDAD AL CONTENIDO:\n"
+    "- Debes respetar al máximo el texto base y los datos introducidos por el usuario.\n"
+    "- No debes resumir ni reformular en exceso si con ello se pierden matices relevantes.\n"
+    "- Debes conservar el sentido, el orden y el contenido material de los datos facilitados.\n"
+    "- Si en el texto base o en los campos aparece una formulación técnica válida, debes mantenerla o reproducirla de forma muy próxima.\n"
+    "- No debes sustituir expresiones concretas del usuario por fórmulas más genéricas o más pobres.\n\n"
+
+    "EXTENSIÓN Y DESARROLLO:\n"
+    "- Debes desarrollar suficientemente todos los apartados del documento sin inventar datos.\n"
+    "- Debes evitar redacciones escuetas o excesivamente resumidas.\n"
+    "- Debes dar al texto una extensión adecuada propia de un documento policial completo.\n"
+    "- El mayor desarrollo debe lograrse explicando mejor los datos existentes, no inventando hechos nuevos.\n\n"
 )
 
 BLOQUE_CONTEXTO_JEFATURA = (
@@ -442,10 +462,22 @@ PROMPT_ACCIDENTE = (
     "- Debes diferenciar claramente entre la fecha y hora del accidente, la fecha y hora del aviso, la comparecencia en dependencias y la personación de los agentes, si constan.\n"
     "- Si el accidente se comunica con posterioridad a su ocurrencia, debes dejarlo claro en la redacción.\n"
     "- No debes confundir la hora del accidente con la del aviso, la comparecencia o la personación policial.\n\n"
-
+    
+    "OBLIGACIÓN DE INTEGRIDAD DE DATOS:\n"
+    "- Todos los datos proporcionados en los campos deben aparecer reflejados en el informe si son relevantes.\n"
+    "- No debes omitir datos de identificación como DNI o teléfono cuando consten.\n"
+    "- No debes simplificar ni resumir eliminando información relevante.\n\n"
+   
+    "INTEGRACIÓN DEL MOMENTO DEL SINIESTRO:\n"
+    "- Debes mencionar expresamente la fecha y hora del accidente si constan en los datos.\n"
+    "- Si la fecha y hora del accidente son distintas de la fecha y hora del aviso, debes reflejar ambos momentos de forma diferenciada.\n"
+    "- No debes omitir la hora del accidente cuando conste.\n"
+    "- En supuestos de aviso posterior, debes dejar claro que el accidente ocurre a una hora y el aviso se recibe en otra posterior.\n\n"
+    
     "ORIGEN DE LA ACTUACIÓN:\n"
     "- Debes atender obligatoriamente al campo 'Origen de la actuación'.\n"
-    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar con 'Que se recibe aviso...'.\n"
+    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar con una fórmula equivalente a: 'Que se recibe aviso en el teléfono oficial de la Jefatura de la Policía Local de Poio...'.\n"
+    "- Si consta la hora del aviso, debes integrarla obligatoriamente en ese primer párrafo.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes iniciar como comparecencia en dependencias.\n"
     "- Si el origen es 'Actuación de oficio', está prohibido indicar que se recibe aviso o llamada.\n"
     "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes observan...'.\n"
@@ -458,13 +490,25 @@ PROMPT_ACCIDENTE = (
     "- Si la actuación se inicia por comparecencia posterior en dependencias, debes reflejarlo con naturalidad y sin simular una intervención inmediata en vía pública.\n"
     "- Si se practican gestiones posteriores, debes integrarlas de forma ordenada.\n\n"
 
+    "IDENTIFICACIÓN DE AGENTES:\n"
+    "- Debes referirte a ellos como 'los agentes con NIP XXXX y NIP XXXX'.\n"
+    "- No debes usar fórmulas como 'los agentes, identificados con los NIP...'.\n\n"
+
+    "ESTRUCTURA DE IDENTIFICACIÓN DE VEHÍCULOS Y CONDUCTORES:\n"
+    "- Cada vehículo debe ir seguido inmediatamente de su conductor con todos los datos disponibles.\n"
+    "- No debes separar la identificación del vehículo de la del conductor en párrafos distintos.\n\n"
+
+    "ORDEN DE LAS ACTUACIONES POLICIALES:\n"
+    "- Debes respetar el orden cronológico en que aparezcan reflejadas en el campo 'Actuaciones realizadas'.\n"
+    "- Si en dicho campo primero se indica restablecimiento de la circulación, después identificación, luego recogida de manifestaciones, asistencia sanitaria, información de trámites y abandono del lugar, debes mantener ese mismo orden en la redacción.\n"
+    "- No debes adelantar la recogida de manifestaciones ni otras actuaciones si en los datos aparecen después.\n\n"
+
     "ACTUACIONES POLICIALES:\n"
     "- Debes redactar las actuaciones en lenguaje técnico-policial real.\n"
     "- Está prohibido usar expresiones genéricas como 'gestiones pertinentes'.\n"
     "- Debes describir las actuaciones concretas realizadas por los agentes.\n"
     "- Las actuaciones deben integrarse en la narrativa, no enumerarse.\n\n"
    
-
     "TIPO DE ACCIDENTE E IMPLICADOS:\n"
     "- Debes atender al tipo de accidente indicado.\n"
     "- Si es SIMPLE, solo debes usar vehículo A y los implicados asociados al mismo, además de peatones o testigos si constan.\n"
@@ -473,12 +517,23 @@ PROMPT_ACCIDENTE = (
     "- Debes mantener orden técnico en la identificación de todos los implicados.\n"
     "- No menciones personas o vehículos cuyos campos estén vacíos.\n\n"
 
-    "VEHÍCULOS Y VÍA:\n"
-    "- Cada vehículo debe describirse con matrícula, marca, modelo y color si constan.\n"
+    "ASOCIACIÓN DEL ALERTANTE O REQUIRENTE:\n"
+    "- Debes atender al campo 'Alertante o requirente'.\n"
+    "- Si en dicho campo se indica que el alertante es uno de los implicados, por ejemplo 'conductor del vehículo A' o 'conductor del vehículo B', debes asociarlo a esa persona concreta.\n"
+    "- En ese caso, no debes tratar al alertante como una persona distinta ni duplicar su identidad.\n"
+    "- Si el alertante es un tercero ajeno al accidente, debes reflejarlo como tal.\n\n"
+
+    "NÚMERO DE VEHÍCULOS IMPLICADOS:\n"
+    "- Debes integrar expresamente el número de vehículos implicados si consta en los datos.\n"
+    "- Si consta 'Número de vehículos implicados', debes reflejarlo en el párrafo inicial de identificación del siniestro.\n\n"
+    
+   "VEHÍCULOS Y VÍA:\n"
+    "- Cada vehículo debe describirse con su clase, matrícula, marca, modelo y color si constan.\n"
     "- No utilices tipos genéricos como si fueran marca.\n"
     "- Debes describir tipo de vía, condiciones del firme y meteorología si constan.\n"
-    "- El sentido ascendente o descendente se refiere exclusivamente a la numeración de la vía, no a la pendiente del terreno.\n\n"
-    "- Debes incluir elementos habituales como visibilidad, amplitud de la vía, señalización horizontal y vertical, y configuración del entorno, siempre de forma neutra.\n\n"
+    "- Si consta el campo 'Condiciones meteorológicas', debes mencionarlo expresamente en el informe.\n"
+    "- Debes integrarlo con una fórmula técnica equivalente a: 'siendo las condiciones meteorológicas existentes en el momento del accidente...' o 'presentando en el momento del accidente condiciones meteorológicas...'.\n"
+    "- No debes omitir dicho dato cuando conste en los campos.\n\n"
 
     "OBJETIVIDAD TÉCNICA:\n"
     "- La descripción debe ser objetiva y basada en hechos observables.\n"
@@ -491,15 +546,25 @@ PROMPT_ACCIDENTE = (
     "- Debes ampliar la descripción con elementos técnicos habituales aunque no consten expresamente.\n"
     "- Puedes incluir de forma neutra: visibilidad, señalización horizontal/vertical, anchura suficiente, configuración típica.\n"
     "- No debes inventar datos concretos no facilitados (como señales específicas inexistentes).\n"
+    "- Debes incluir si hay aceras, altura de las aceras si están al mismo nivel de la calzada o diferente nivel, arcenes, carriles, mediana, isleta o elementos similares si constan.\n"
     "- Debes evitar descripciones pobres o excesivamente breves.\n\n"
+
+    "POSICIÓN DE LOS VEHÍCULOS A LA LLEGADA:\n"
+    "- Si consta el campo 'Posición de los vehículos a la llegada de los agentes', debes integrarlo en un párrafo propio y técnico.\n"
+    "- No debes omitirlo si figura en los datos.\n\n"
 
     "PROHIBICIONES EXPRESAS (OBLIGATORIO):\n"
     "- Está prohibido utilizar expresiones genéricas como:\n"
     "  'no ir atento', 'conducción negligente', 'gestiones pertinentes', 'lo que favorece', 'se observa que'.\n"
     "- Está prohibido redactar de forma vaga o imprecisa.\n"
+    "- Los campos 'Observaciones adicionales', 'Conclusión técnica' o cualesquiera otros campos no pueden suplir ni sustituir a los campos específicos de prueba de alcoholemia o de drogas.\n"
+    "- Está prohibido construir párrafos de alcoholemia o drogas a partir de inferencias obtenidas desde otros campos distintos del campo específico de prueba.\n"
+    "- Está prohibido resumir, acortar o sustituir referencias legales obligatorias por fórmulas genéricas como 'se informa de su obligación' sin citar la norma correspondiente cuando el prompt exija citarla.\n"
     "- Toda la redacción debe tener contenido técnico real.\n\n"
 
     "DINÁMICA DEL SINIESTRO:\n"
+    "- Cuando la dinámica se apoye en las manifestaciones de las partes, debes introducirla preferentemente con fórmulas como: 'Que recogidas manifestaciones a las partes implicadas...' o 'Que recogidas manifestaciones de las partes implicadas...'.\n"
+    "- Debes evitar fórmulas artificiales como 'Que el relato técnico del accidente indica...'.\n"
     "- Debes reconstruir el accidente de forma técnica completa.\n"
     "- Debes describir:\n"
     "  1. Situación previa de los vehículos.\n"
@@ -515,10 +580,38 @@ PROMPT_ACCIDENTE = (
     "- Debes indicar la posición de los pasajeros si consta.\n"
     "- Si no consta, no la inventes.\n\n"
 
-    "PRUEBAS DE ALCOHOLEMIA Y DROGAS:\n"
-    "- Debes indicar que, al tratarse de un accidente de circulación, se informa a los conductores de la obligatoriedad de someterse a las pruebas conforme al Real Decreto Legislativo 6/2015, artículo 14.\n"
-    "- Debes indicar resultados en mg/l si constan.\n"
+   "PRUEBAS DE ALCOHOLEMIA Y DROGAS:\n"
+    "- Solo debes hacer mención a pruebas de alcoholemia si el campo 'Prueba de alcoholemia (indicar resultado o 'no procede')' contiene información expresa y concreta.\n"
+    "- Si dicho campo está vacío, no consta o no aporta contenido material suficiente, está prohibido mencionar la realización de pruebas de alcoholemia, aunque en otros campos del formulario aparezcan referencias indirectas, consecuencias administrativas, denuncias o sospechas relacionadas.\n"
+    "- Si se realizan pruebas de alcoholemia y así consta en ese campo específico, debes redactar obligatoriamente un párrafo específico de alcoholemia.\n"
+    "- En ese párrafo debes indicar expresamente, de forma obligatoria y no resumible, que se informa a los conductores de su obligación de someterse a las pruebas por estar implicados en un siniestro vial, en base al artículo 14 del Real Decreto Legislativo 6/2015, de 30 de octubre, por el que se aprueba el texto refundido de la Ley sobre Tráfico, Circulación de Vehículos a Motor y Seguridad Vial.\n"
+    "- Está prohibido omitir la referencia al artículo 14 del Real Decreto Legislativo 6/2015 si en el campo específico consta que se realizaron pruebas de alcoholemia.\n"
+    "- Está prohibido redactar un párrafo de alcoholemia sin incluir esa referencia legal completa.\n"
+    "- La referencia legal de alcoholemia debe aparecer antes de indicar los resultados.\n"
+    "- Si constan resultados de alcoholemia, debes indicarlos expresamente con su unidad y con la fórmula 'mg/L en aire espirado'. Ejemplo: '0,48 mg/L en aire espirado'.\n"
+    "- Solo debes hacer mención a pruebas de drogas si el campo 'Prueba de drogas (indicar resultado o 'no procede')' contiene información expresa y concreta.\n"
+    "- Si dicho campo está vacío, no consta o no aporta contenido material suficiente, está prohibido mencionar la realización de pruebas de drogas, aunque en otros campos del formulario aparezcan referencias indirectas, denuncias, signos, sospechas, resultados o consecuencias administrativas relacionadas con drogas.\n"
+    "- Si se realizan pruebas de drogas y así consta en ese campo específico, debes redactar obligatoriamente un párrafo específico indicando que se informa a los conductores de su obligación de someterse a una prueba para la detección de sustancias estupefacientes, psicotrópicos, estimulantes u otras sustancias análogas por estar implicados en un siniestro vial, y que dicha prueba se realiza en base a los artículos 27 y 28 del Real Decreto 1428/2003, de 21 de noviembre, por el que se aprueba el Reglamento General de Circulación.\n"
+    "- Si en el campo específico de prueba de drogas constan signos externos compatibles con el consumo (por ejemplo: ojos vidriosos, habla pastosa, nerviosismo, pupilas dilatadas, incoherencias, etc.), debes mencionarlos obligatoriamente en el mismo párrafo, incluso si el resultado es negativo.\n"
+    "- Si constan resultados de la prueba de drogas, debes indicarlos expresamente.\n"
+    "- La referencia legal es obligatoria y debe mantenerse siempre, independientemente del resultado de la prueba.\n"
+    "- Está prohibido omitir, resumir o integrar de forma incompleta la referencia legal bajo ningún concepto.\n"
     "- No debes afirmar infracción si no procede.\n\n"
+
+    "REPORTAJE FOTOGRÁFICO:\n"
+    "- Si el campo 'Reportaje fotográfico (sí/no)' es 'Sí', debes redactar un párrafo exclusivo e independiente para ello.\n"
+    "- Debes usar una fórmula equivalente a: 'Que en el lugar del siniestro vial los agentes actuantes realizan un reportaje fotográfico de la situación.'\n"
+    "- No debes mezclar el reportaje fotográfico con el resto de actuaciones.\n"
+    "- Si el campo es 'No' o está vacío, no debes hacer mención al reportaje fotográfico.\n\n"
+
+    "TRATAMIENTO DEL CAMPO 'OBSERVACIONES ADICIONALES':\n"
+    "- Debes atender obligatoriamente al campo 'Observaciones adicionales'.\n"
+    "- Toda la información contenida en dicho campo debe ser integrada en el informe si es relevante.\n"
+    "- No debes tratar este campo como secundario ni opcional.\n"
+    "- No debes omitir información contenida en este campo.\n"
+    "- Debes integrarlo de forma coherente dentro del informe, ya sea en las actuaciones, en la dinámica, en las pruebas o en la conclusión, según corresponda.\n"
+    "- Si el campo contiene consecuencias administrativas, denuncias, circunstancias relevantes, ampliaciones de hechos o cualquier dato técnico, debes reflejarlo expresamente.\n"
+    "- Está prohibido ignorar o perder información procedente de este campo.\n\n"
 
     "CONCLUSIÓN:\n"
     "- La conclusión debe comenzar con: 'Que a la vista de todo lo expuesto, se concluye que...'.\n"
@@ -526,10 +619,13 @@ PROMPT_ACCIDENTE = (
     "- Debes basarte en daños, manifestaciones y configuración de la vía.\n"
     "- Debes explicar la dinámica antes de concluir.\n"
     "- Evita conclusiones genéricas.\n"
+    "- Si existen infracciones administrativas derivadas de las actuaciones realizadas (alcoholemia, drogas, documentación, señalización, maniobras, etc.), debes mencionarlas expresamente en una frase independiente dentro de la conclusión.\n"
+    "- Debes utilizar una estructura equivalente a: 'Que por otro lado, como resultado de las actuaciones practicadas, se formula denuncia administrativa a [persona] por [hecho concreto]'.\n"
+    "- Está prohibido vincular la denuncia administrativa como causa del accidente si no existe relación directa.\n"
     "- Debe tener nivel técnico real de informe policial de tráfico.\n\n"
 
     "CIERRE:\n"
-    "- Debes finalizar exactamente con: 'Y para que así conste, se extiende el presente informe técnico policial, que se emite en base a la inspección ocular, manifestaciones recabadas y análisis de las circunstancias concurrentes, quedando sometido a cualquier otro mejor fundado.'\n\n"
+    "- Debes finalizar exactamente con: 'Y para que así conste, se extiende el presente informe técnico policial, que se emite en base a las manifestaciones recabadas y análisis de las circunstancias concurrentes, quedando sometido a cualquier otro mejor fundado.'\n\n"
 
     "ESTILO:\n"
     "- Usa lenguaje técnico-policial real.\n"
@@ -537,6 +633,21 @@ PROMPT_ACCIDENTE = (
     "- No sobreexplicar.\n"
     "- No usar fórmulas artificiales ni repetitivas.\n\n"
 
+    "INTEGRIDAD DE LA INFORMACIÓN (CRÍTICO):\n"
+    "- Todos los campos proporcionados deben ser tratados como fuente obligatoria de información.\n"
+    "- Ningún campo debe ser considerado secundario.\n"
+    "- Está prohibido omitir información relevante contenida en cualquier campo.\n"
+    "- El modelo no puede decidir ignorar información por considerarla redundante o poco importante.\n\n"
+
+    "CONSECUENCIAS ADMINISTRATIVAS Y ACTUACIONES DERIVADAS:\n"
+    "- Solo debes mencionar denuncias administrativas si constan de forma expresa y literal en los datos proporcionados.\n"
+    "- Está prohibido inferir, deducir o suponer la existencia de una denuncia administrativa a partir de la dinámica del accidente, daños, actuaciones o circunstancias del siniestro.\n"
+    "- Si en los datos no consta de forma expresa una denuncia administrativa, no debes mencionarla bajo ningún concepto.\n"
+    "- Si consta en los datos, debes reflejarla de forma literal, respetando el hecho infractor indicado.\n"
+    "- Está prohibido inventar, deducir o generar denuncias administrativas que no estén expresamente indicadas en los datos proporcionados.\n"
+    "- Está prohibido generar denuncias administrativas basadas en interpretaciones del modelo. Solo pueden redactarse si están expresamente indicadas en los datos de entrada.\n"
+    "- Debes utilizar una estructura equivalente a: 'Que por otro lado, como resultado de las actuaciones practicadas, se formula denuncia administrativa a [persona] por [hecho literal indicado en los datos]'.\n\n"
+    
     + REGLAS_COMUNES_NO_INVENTAR
 )
 
@@ -842,6 +953,7 @@ CAMPOS_ACCIDENTE = [
     "Agentes actuantes (NIP)",
     "Indicativo policial",
     "Tipo de accidente",
+    "Número de vehículos implicados",
 
     # ===== REQUIRIMIENTO =====
     "Alertante o requirente",
@@ -849,7 +961,7 @@ CAMPOS_ACCIDENTE = [
     "Teléfono del alertante o requirente",
 
     # ===== VEHÍCULO A =====
-    "Vehículo A - matrícula",
+    "Vehículo A - clase y matrícula",
     "Vehículo A - marca",
     "Vehículo A - modelo",
     "Vehículo A - color",
@@ -861,7 +973,7 @@ CAMPOS_ACCIDENTE = [
     "Teléfono pasajeros vehículo A",
 
     # ===== VEHÍCULO B =====
-    "Vehículo B - matrícula",
+    "Vehículo B - clase y matrícula",
     "Vehículo B - marca",
     "Vehículo B - modelo",
     "Vehículo B - color",
@@ -873,7 +985,7 @@ CAMPOS_ACCIDENTE = [
     "Teléfono pasajeros vehículo B",
 
     # ===== VEHÍCULO C =====
-    "Vehículo C - matrícula",
+    "Vehículo C - clase y matrícula",
     "Vehículo C - marca",
     "Vehículo C - modelo",
     "Vehículo C - color",
@@ -901,11 +1013,11 @@ CAMPOS_ACCIDENTE = [
 
     # ===== VÍA =====
     "Descripción de la vía",
-    "Sentido de la vía según numeración (vehículo A)",
     "Condiciones meteorológicas",
 
     # ===== HECHOS =====
     "Daños observados",
+    "Posición de los vehículos a la llegada de los agentes",
     "Relato técnico del accidente",
     "Actuaciones realizadas",
 
@@ -953,7 +1065,8 @@ CAMPOS_INFORME_MUNICIPAL = [
     "Hora de personación de los agentes",
     "Hora de personación del requirente/alertante en jefatura (si procede)",
     "Lugar",
-    "Agentes",
+    "Agentes actuantes (NIP)",
+    "Indicativo policial",
     "Alertante o requirente",
     "DNI del alertante o requirente",
     "Teléfono del alertante o requirente",
@@ -976,13 +1089,14 @@ CAMPOS_PARTE_SERVICIO = [
     "Hora de personación de los agentes",
     "Hora de personación del requirente/alertante en jefatura (si procede)",
     "Lugar",
-    "Agentes",
+    "Agentes actuantes (NIP)",
+    "Indicativo policial",
     "Alertante o requirente",
     "DNI del alertante o requirente",
     "Teléfono del alertante o requirente",
-    "Personas implicadas o comparecientes",
-    "DNI personas implicadas o comparecientes",
-    "Teléfono personas implicadas o comparecientes",
+    "Personas implicadas",
+    "DNI personas implicadas",
+    "Teléfono personas implicadas",
     "Asunto o motivo",
     "Relato libre de lo sucedido o de la gestión realizada",
     "Actuaciones policiales realizadas",
@@ -996,7 +1110,8 @@ CAMPOS_ANOMALIA = [
     "Hora de personación de los agentes",
     "Hora de personación del requirente/alertante en jefatura (si procede)",
     "Lugar exacto",
-    "Agentes",
+    "Agentes actuantes (NIP)",
+    "Indicativo policial",
     "Alertante o requirente",
     "DNI del alertante o requirente",
     "Teléfono del alertante o requirente",
@@ -1063,7 +1178,6 @@ CAMPOS_DENUNCIA_ADMINISTRATIVA = [
 
 OPCIONES_SELECT = {
     "Tipo de accidente": ["", "Simple", "Complejo", "Múltiple"],
-    "Sentido de la vía según numeración (vehículo A)": ["", "Ascendente", "Descendente"],
     "Condiciones meteorológicas": ["", "Despejado", "Soleado", "Nublado", "Lluvia", "Niebla", "Viento", "Otra"],
     "Reportaje fotográfico (sí/no)": ["", "Sí", "No"],
     "Origen del aviso (teléfono / jefatura)": ["", "Teléfono", "Jefatura"],
@@ -1136,7 +1250,6 @@ def pagina_informe_municipal(api_key: str):
     bloque_texto_a_campos(api_key, "municipal", "Informe municipal", CAMPOS_INFORME_MUNICIPAL)
     origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
 
-
     col_tools_1, col_tools_2 = st.columns(2)
     with col_tools_1:
         if st.button("🧹 Limpiar formulario", key="limpiar_municipal"):
@@ -1144,13 +1257,21 @@ def pagina_informe_municipal(api_key: str):
             st.rerun()
 
     with col_tools_2:
-        st.caption("Usa dictado o rellena manualmente los campos.")
+        st.caption("Pega un texto base o rellena los campos manualmente.")
 
     datos = {}
 
     datos.update(render_form_fields_grupo(
         "📍 Datos generales",
-        ["Fecha", "Hora", "Hora de personación", "Lugar", "Agentes"],
+        [
+            "Fecha",
+            "Hora del aviso",
+            "Hora de personación de los agentes",
+            "Hora de personación del requirente/alertante en jefatura (si procede)",
+            "Lugar",
+            "Agentes actuantes (NIP)",
+            "Indicativo policial",
+        ],
         key_prefix,
     ))
 
@@ -1206,10 +1327,21 @@ def pagina_informe_municipal(api_key: str):
             intervencion_presencial,
         )
 
-        debug_log("DATOS PARA IA", bloque)
+        observaciones = datos.get("Observaciones adicionales", "")
+        hay_denuncia = "denuncia" in observaciones.lower()
+
+        bloque += f"\nHay denuncia administrativa: {'Sí' if hay_denuncia else 'No'}"
+
+        if st.session_state.get("debug_mode", False):
+            st.write("DEBUG - DATOS PARA IA INFORME MUNICIPAL:")
+            st.text(bloque)
 
         with st.spinner("Generando informe..."):
             texto = generar_texto_con_ia(api_key, prompt_final, bloque)
+
+        if st.session_state.get("debug_mode", False):
+            st.write("DEBUG - RESULTADO IA INFORME MUNICIPAL:")
+            st.text(texto)
 
         st.session_state["resultado_municipal"] = texto
         st.session_state["datos_municipal"] = datos
@@ -1291,6 +1423,26 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
                 key=clave_widget,
             )
 
+        # ===== EXCEPCIONES DE TAMAÑO =====
+        elif campo in {"Asunto"}:
+            valor = st.text_area(
+                campo,
+                value=st.session_state.get(clave_widget, st.session_state.get(clave, "")),
+                key=clave_widget,
+                height=100,
+            )
+
+        elif campo in {
+            "Agentes",
+            "Agentes actuantes (NIP)",
+            "Persona denunciada / responsable",
+        }:
+            valor = st.text_input(
+                campo,
+                value=st.session_state.get(clave_widget, st.session_state.get(clave, "")),
+                key=clave_widget,
+            )
+
         # ===== CAMPOS CORTOS =====
         elif any(x in campo_lower for x in [
             "fecha",
@@ -1299,11 +1451,18 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
             "teléfono",
             "telefono",
             "nip",
+            "alertante o requirente",
             "matrícula",
             "matricula",
             "marca",
             "modelo",
             "color",
+            "conductor vehículo",
+            "conductor vehiculo",
+            "número de vehículos implicados",
+            "numero de vehiculos implicados",
+            "posición de los vehículos a la llegada",
+            "posicion de los vehiculos a la llegada",
             "lugar",
             "indicativo",
             "órgano judicial",
@@ -1453,7 +1612,6 @@ def extraer_campos_desde_dictado(api_key: str, tipo_documento: str, texto_dictad
   - "Tipo de accidente": "Simple" o "Complejo"
   - "Reportaje fotográfico (sí/no)": "Sí" o "No"
   - "Condiciones meteorológicas": "Despejado", "Soleado", "Nublado", "Lluvia", "Niebla", "Viento" u "Otra"
-  - "Sentido de la vía según numeración (vehículo A)": "Ascendente" o "Descendente"
   - "Tipo de anomalía": "Alcantarilla", "Cable caído", "Farola dañada", "Socavón", "Señalización dañada", "Árbol o ramas", "Bache", "Fuga de agua", "Obstáculo en calzada" u "Otra"
   - "Tipo de informe al juzgado": "No localización / notificación negativa" o "Incumplimiento de localización permanente"
 - No uses variantes como "simple", "si", "lloviendo", "día soleado", "hay fotos", etc.
@@ -1561,6 +1719,12 @@ TEXTO:
 """
 
     try:
+        if st.session_state.get("debug_mode", False):
+            st.write("DEBUG - Entrando en extraer_campos_desde_dictado")
+            st.write("DEBUG - Tipo documento:", tipo_documento)
+            st.write("DEBUG - Primeros 300 caracteres del texto:")
+            st.write(texto_dictado[:300])
+
         respuesta = client.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0,
@@ -1578,12 +1742,16 @@ TEXTO:
         )
 
         contenido = (respuesta.choices[0].message.content or "").strip()
-        debug_log("RESPUESTA RAW IA", contenido)
+
+        if st.session_state.get("debug_mode", False):
+            st.write("DEBUG - RESPUESTA RAW IA:")
+            st.code(contenido, language="json")
 
         datos = json.loads(contenido)
 
         if not isinstance(datos, dict):
-            debug_log("ERROR PARSEO", "La respuesta no es un diccionario")
+            if st.session_state.get("debug_mode", False):
+                st.write("DEBUG - ERROR: la respuesta no es un diccionario")
             return esquema
 
         resultado = {}
@@ -1596,11 +1764,18 @@ TEXTO:
 
             resultado[campo] = valor
 
+        if st.session_state.get("debug_mode", False):
+            st.write("DEBUG - RESULTADO FINAL:")
+            st.json(resultado)
+
         return resultado
 
     except Exception as e:
+        if st.session_state.get("debug_mode", False):
+            st.write("DEBUG - EXCEPCIÓN EN extraer_campos_desde_dictado:")
+            st.write(str(e))
+
         st.warning(f"No se pudieron extraer campos desde el texto. Error: {e}")
-        debug_log("EXCEPCIÓN EXTRACCIÓN", str(e))
         return esquema
 
 def bloque_texto_a_campos(api_key: str, key_prefix: str, tipo_documento: str, campos_objetivo: list[str]):
@@ -1620,6 +1795,9 @@ def bloque_texto_a_campos(api_key: str, key_prefix: str, tipo_documento: str, ca
         if not texto.strip():
             st.warning("Introduce un texto primero.")
         else:
+            if st.session_state.get("debug_mode", False):
+                st.write("DEBUG - Entró en rellenar campos")
+
             with st.spinner("Extrayendo campos desde el texto..."):
                 datos_extraidos = extraer_campos_desde_dictado(
                     api_key=api_key,
@@ -1628,12 +1806,14 @@ def bloque_texto_a_campos(api_key: str, key_prefix: str, tipo_documento: str, ca
                     campos_objetivo=campos_objetivo,
                 )
 
-            debug_log("CAMPOS EXTRAÍDOS", datos_extraidos)
+            if st.session_state.get("debug_mode", False):
+                st.write("DEBUG - CAMPOS EXTRAÍDOS:")
+                st.json(datos_extraidos)
 
             aplicar_datos_a_session_state(datos_extraidos, key_prefix)
 
             st.success("Campos rellenados automáticamente.")
-            st.rerun()
+            # st.rerun()
 
 # =========================================================
 # MÓDULOS
