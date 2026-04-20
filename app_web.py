@@ -108,6 +108,10 @@ def capitalizar_si_corresponde(campo: str, valor: str) -> str:
     if not valor:
         return valor
 
+    # ✅ FORZAR MAYÚSCULAS EN INDICATIVO
+    if "indicativo policial" in campo.lower():
+        return valor.upper()
+
     campos_sensibles = {
         "agentes actuantes (nip)",
         "agentes",
@@ -116,8 +120,8 @@ def capitalizar_si_corresponde(campo: str, valor: str) -> str:
         "vehículo a - clase y matrícula",
         "vehículo b - clase y matrícula",
         "vehículo c - clase y matrícula",
-        "prueba de alcoholemia (indicar resultado o 'no procede')",
-        "prueba de drogas (indicar resultado o 'no procede')",
+        "prueba de alcoholemia (indicar resultado)",
+        "prueba de drogas (signos, indicar resultado)",
     }
 
     if campo.lower() in campos_sensibles or "dni" in campo.lower() or "teléfono" in campo.lower():
@@ -129,10 +133,30 @@ def capitalizar_si_corresponde(campo: str, valor: str) -> str:
 
     return valor[0].upper() + valor[1:] if valor else valor
 
+def formatear_nips(nips_raw: str) -> str:
+    if not nips_raw:
+        return ""
+
+    # Separar por espacios, comas, etc.
+    lista = re.split(r"[,\s]+", nips_raw.strip())
+
+    # Limpiar vacíos
+    lista = [nip for nip in lista if nip]
+
+    if not lista:
+        return ""
+
+    if len(lista) == 1:
+        return f"NIP {lista[0]}"
+
+    if len(lista) == 2:
+        return f"NIP {lista[0]} y NIP {lista[1]}"
+
+    # Más de 2 → coma + y final
+    return ", ".join(f"NIP {nip}" for nip in lista[:-1]) + f" y NIP {lista[-1]}"
 
 def normalizar_datos(diccionario: dict) -> dict:
     return {k: capitalizar_si_corresponde(k, str(v)) for k, v in diccionario.items()}
-
 
 def limpiar_json_respuesta(contenido: str) -> str:
     contenido = (contenido or "").strip()
@@ -196,13 +220,6 @@ def normalizar_valor_select(campo: str, valor: str) -> str:
         if any(x in valor_limpio for x in ["viento", "ventoso", "ventosa"]):
             return "Viento"
         return "Otra"
-
-    if campo == "Sentido de la vía según numeración (vehículo A)":
-        if "ascend" in valor_limpio:
-            return "Ascendente"
-        if "descend" in valor_limpio:
-            return "Descendente"
-        return ""
 
     if campo == "Tipo de anomalía":
         mapa_anomalias = {
@@ -298,6 +315,7 @@ def construir_bloque_usuario_con_contexto(
     datos: dict,
     origen_actuacion: str,
     intervencion_presencial: str,
+    orden_autoridad: str = "",
 ) -> str:
     if not isinstance(datos, dict):
         datos = {}
@@ -307,7 +325,36 @@ def construir_bloque_usuario_con_contexto(
         f"Intervención presencial en el lugar: {intervencion_presencial}",
     ]
 
+    if origen_actuacion == "Orden jerárquica" and orden_autoridad.strip():
+        bloque.append(f"Orden jerárquica (autoridad que la dicta): {orden_autoridad.strip()}")
+
     bloque.extend([f"{k}: {v}" for k, v in datos.items() if str(v).strip()])
+
+    nips = datos.get("Agentes actuantes (NIP)", "").strip()
+    indicativo = datos.get("Indicativo policial", "").strip()
+
+    # 👉 FORMATEAR NIPS
+    nips_formateados = formatear_nips(nips)
+
+    if intervencion_presencial == "Sí" and nips_formateados:
+        frase_personacion = f"Que los agentes con {nips_formateados}, uniformados reglamentariamente"
+
+        if indicativo:
+            frase_personacion += f", se personan en el lugar en vehículo oficial rotulado bajo el indicativo policial {indicativo}."
+        else:
+            frase_personacion += ", se personan en el lugar en vehículo oficial."
+
+        bloque.append(frase_personacion)
+
+    if intervencion_presencial == "Sí" and nips_formateados:
+        frase_personacion = f"Que los agentes con {nips_formateados}, uniformados reglamentariamente"
+
+        if indicativo:
+            frase_personacion += f", se personan en el lugar en vehículo oficial rotulado bajo el indicativo policial {indicativo}."
+        else:
+            frase_personacion += ", se personan en el lugar en vehículo oficial."
+
+        bloque.append(frase_personacion)
 
     if datos.get("DNI del alertante o requirente"):
         bloque.append("Alertante identificado previamente: Sí")
@@ -348,6 +395,7 @@ def generar_texto_con_ia(api_key: str, prompt_sistema: str, datos_usuario: str) 
 # PROMPTS BASE
 # =========================================================
 
+
 REGLAS_COMUNES_NO_INVENTAR = (
     "NO inventes datos en ningún caso. Usa exclusivamente la información facilitada por el usuario. "
     "Si un dato no consta, no lo completes ni lo deduzcas. Omítelo del texto o déjalo en blanco si procede."
@@ -371,13 +419,18 @@ BLOQUE_FIDELIDAD_Y_EXTENSION = (
 BLOQUE_CONTEXTO_JEFATURA = (
     "CONTEXTO DE ACTUACIÓN:\n"
     "- Debes atender a los campos 'Origen de la actuación' e 'Intervención presencial en el lugar'.\n"
-    "- El origen puede ser comparecencia en jefatura, llamada/aviso telefónico o actuación de oficio.\n"
+    "- El origen de la actuación puede ser comparecencia en jefatura, aviso telefónico, aviso en la calle, actuación de oficio u orden jerárquica.\n"
+    "- Debes identificar correctamente el tipo de origen y adaptar la redacción al mismo sin mezclar escenarios.\n"
     "- Aunque la actuación se inicie por comparecencia en jefatura, puede existir después intervención presencial en vía pública.\n"
     "- Debes reflejar correctamente ambas fases si constan: inicio en dependencias y posterior intervención policial en el lugar.\n"
     "- Si el origen es comparecencia en jefatura y además existe intervención presencial, primero debes reflejar la comparecencia y después la personación de los agentes.\n"
     "- Si el origen es llamada o aviso telefónico, debes iniciar con fórmulas tipo 'Que se recibe llamada...' o 'Que se recibe aviso...'.\n"
-    "- Si existe intervención presencial en el lugar, debes integrar la fórmula: "
-    "'Que los agentes con NIP XXXX y NIP XXXX, uniformados reglamentariamente, se personan en el lugar en vehículo oficial rotulado bajo el indicativo policial XXXX...'\n"
+    "- Si existe intervención presencial en el lugar, es OBLIGATORIO incluir la personación de los agentes.\n"
+    "- Debes utilizar una fórmula técnica equivalente a:\n"
+    "  'Que los agentes con NIP XXXX y NIP XXXX, uniformados reglamentariamente, se personan en el lugar en vehículo oficial rotulado bajo el indicativo policial XXXX...'\n"
+    "- Si en los datos consta el campo 'Indicativo policial', debes incluirlo expresamente en esa frase.\n"
+    "- Está prohibido omitir el indicativo policial cuando conste en los datos.\n"
+    "- El indicativo policial debe integrarse exactamente en la frase de personación.\n"
     "- No mezclar escenarios de forma incoherente ni inventar actuaciones no facilitadas.\n\n"
 )
 
@@ -386,6 +439,38 @@ BLOQUE_TIEMPO_PRESENTE = (
     "- Toda la redacción debe realizarse en tiempo presente narrativo policial.\n"
     "- Ejemplos correctos: 'se recibe aviso', 'se personan los agentes', 'se observa', 'se realiza', 'donde ocurre el siniestro'.\n"
     "- No utilices pasado en ningún caso.\n"
+)
+
+BLOQUE_PERSONACION_OBLIGATORIA = (
+    "PERSONACIÓN POLICIAL (OBLIGATORIO):\n"
+    "- Si existe intervención presencial en el lugar, debes reflejar la personación de los agentes.\n"
+    "- Si en los datos aparece una 'FRASE DE PERSONACIÓN OBLIGATORIA', debes integrarla obligatoriamente.\n"
+    "- Debes reproducirla de forma literal o muy próxima.\n"
+    "- Está prohibido omitirla si está presente.\n\n"
+)
+
+BLOQUE_ORDEN_JERARQUICA = (
+    "ORDEN JERÁRQUICA:\n"
+    "- Si el origen de la actuación es 'Orden jerárquica', está prohibido indicar que se recibe aviso, llamada, requerimiento o comparecencia.\n"
+    "- La actuación debe derivarse exclusivamente de la orden jerárquica.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que en cumplimiento de orden jerárquica...' o 'Que por orden jerárquica...'.\n"
+    "- Si consta el campo 'Orden jerárquica (autoridad que la dicta)', debes integrarlo expresamente en la primera frase.\n"
+    "- Si en dicha autoridad consta también un NIP, debes incluirlo expresamente.\n"
+    "- Está prohibido omitir la autoridad o el NIP cuando figuren en los datos.\n"
+    "- Si el origen es 'Orden jerárquica', cualquier hora asociada al conocimiento inicial de los hechos debe interpretarse en relación con la orden jerárquica, no como aviso ciudadano o telefónico.\n"
+    "- La referencia a la orden jerárquica debe figurar en el primer párrafo del documento.\n\n"
+)
+
+BLOQUE_AVISOS = (
+    "AVISOS:\n"
+    "- Si el origen de la actuación es 'Aviso telefónico', debes iniciar la redacción como recepción de aviso o llamada telefónica.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que se recibe aviso en el teléfono oficial...' o 'Que se recibe llamada...'.\n"
+    "- Si consta la hora del aviso, debes integrarla expresamente en la redacción.\n"
+    "- Si el origen de la actuación es 'Aviso en la calle', debes iniciar la redacción como requerimiento directo en vía pública.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que los agentes son requeridos en vía pública...' o 'Que un ciudadano requiere la presencia policial en el lugar...'.\n"
+    "- Si en el campo 'Alertante o requirente' consta que se trata de un ciudadano no identificado o de un viandante, debes mantener coherencia con dicha circunstancia.\n"
+    "- Está prohibido redactar como aviso telefónico un supuesto de aviso en la calle.\n"
+    "- Está prohibido redactar como aviso en la calle un supuesto de aviso telefónico.\n\n"
 )
 
 TRATAMIENTO_PERSONAS_GENERAL = (
@@ -404,6 +489,41 @@ TRATAMIENTO_PERSONAS_MUNICIPAL = (
     "- Los agentes deben identificarse exclusivamente por su NIP.\n"
 )
 
+
+
+BLOQUE_REGLAS_POLICIALES = """
+REGLAS GENERALES DE REDACCIÓN POLICIAL (OBLIGATORIO):
+
+TIEMPO VERBAL:
+- Toda la redacción debe realizarse en tiempo presente narrativo policial.
+
+TRATAMIENTO DE PERSONAS:
+- Todas las personas físicas deben figurar siempre como 'D.' o 'Dña.' seguido del nombre completo.
+- Está prohibido omitir el tratamiento en cualquier mención.
+
+ORIGEN DE LA ACTUACIÓN:
+- El origen puede ser comparecencia en jefatura, aviso telefónico, aviso en la calle, actuación de oficio u orden jerárquica.
+- Debes adaptar la redacción estrictamente al tipo de origen.
+- Está prohibido mezclar tipos de origen.
+- Si es comparecencia en jefatura, está prohibido indicar que se recibe aviso o llamada.
+- Si es aviso telefónico, debe redactarse como recepción de llamada.
+- Si es aviso en la calle, debe redactarse como requerimiento directo en vía pública.
+- Si es actuación de oficio, está prohibido indicar aviso o requerimiento.
+- Si es orden jerárquica, la actuación debe derivarse exclusivamente de dicha orden.
+
+INSPECCIÓN OCULAR:
+- Debe limitarse exclusivamente a lo observado directamente por los agentes.
+- Está prohibido incluir manifestaciones de las partes si ya constan en la exposición.
+
+TERMINOLOGÍA:
+- Usar 'drone' en lugar de 'dron'.
+
+PROHIBICIONES:
+- No inventar datos.
+- No duplicar información.
+"""
+
+
 PROMPT_DENUNCIA_ADMINISTRATIVA = (
     "Eres un asistente de redacción policial.\n\n"
 
@@ -416,11 +536,16 @@ PROMPT_DENUNCIA_ADMINISTRATIVA = (
     "ORIGEN DE LA ACTUACIÓN:\n"
     "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
-    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar el relato como recepción de llamada o aviso.\n"
+    + BLOQUE_AVISOS +
     "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
     "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los actuantes agentes observan...'.\n"
     "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
     "- Si no existe intervención presencial, no debes simular personación policial en el lugar.\n"
+    "- Si el origen es 'Orden jerárquica', debes iniciar la redacción indicando que la actuación se realiza por orden jerárquica.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que por orden jerárquica...' o 'Que en cumplimiento de orden jerárquica...'.\n"
+    "- Si consta el campo 'Orden jerárquica (autoridad que la dicta)', debes indicar expresamente dicha autoridad.\n"
+    "- Debes integrarlo con una fórmula equivalente a: 'Que en cumplimiento de orden jerárquica dictada por [autoridad]...'.\n"
+    "- Está prohibido indicar que se recibe llamada, aviso o comparecencia cuando el origen sea orden jerárquica.\n"
     "- Si existe intervención presencial, debes integrarla de forma cronológica y coherente.\n\n"
 
     "ESTRUCTURA:\n"
@@ -443,6 +568,13 @@ PROMPT_DENUNCIA_ADMINISTRATIVA = (
     "- 'Que se procede a la confección de la presente denuncia administrativa a los efectos oportunos.'\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
+    + "\n\n"
+    + BLOQUE_REGLAS_POLICIALES
+    + "\n"
+    + BLOQUE_PERSONACION_OBLIGATORIA
+    + "\n"
+    + BLOQUE_ORDEN_JERARQUICA
+    + "\n"
 )
 
 PROMPT_ACCIDENTE = (
@@ -467,7 +599,9 @@ PROMPT_ACCIDENTE = (
     "- Todos los datos proporcionados en los campos deben aparecer reflejados en el informe si son relevantes.\n"
     "- No debes omitir datos de identificación como DNI o teléfono cuando consten.\n"
     "- No debes simplificar ni resumir eliminando información relevante.\n\n"
-   
+    "- El campo 'Indicativo policial' es de carácter obligatorio en la redacción si consta.\n"
+    "- No puede ser omitido bajo ningún concepto.\n"
+
     "INTEGRACIÓN DEL MOMENTO DEL SINIESTRO:\n"
     "- Debes mencionar expresamente la fecha y hora del accidente si constan en los datos.\n"
     "- Si la fecha y hora del accidente son distintas de la fecha y hora del aviso, debes reflejar ambos momentos de forma diferenciada.\n"
@@ -476,18 +610,26 @@ PROMPT_ACCIDENTE = (
     
     "ORIGEN DE LA ACTUACIÓN:\n"
     "- Debes atender obligatoriamente al campo 'Origen de la actuación'.\n"
-    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar con una fórmula equivalente a: 'Que se recibe aviso en el teléfono oficial de la Jefatura de la Policía Local de Poio...'.\n"
     "- Si consta la hora del aviso, debes integrarla obligatoriamente en ese primer párrafo.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes iniciar como comparecencia en dependencias.\n"
+    + BLOQUE_AVISOS +
     "- Si el origen es 'Actuación de oficio', está prohibido indicar que se recibe aviso o llamada.\n"
     "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes observan...'.\n"
     "- Debes atender también al campo 'Intervención presencial en el lugar'.\n"
+    "- Si el origen es 'Orden jerárquica', debes iniciar la redacción indicando que la actuación se realiza por orden jerárquica.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que por orden jerárquica...' o 'Que en cumplimiento de orden jerárquica...'.\n"
+    "- Si consta el campo 'Orden jerárquica (autoridad que la dicta)', debes indicar expresamente dicha autoridad.\n"
+    "- Debes integrarlo con una fórmula equivalente a: 'Que en cumplimiento de orden jerárquica dictada por [autoridad]...'.\n"
+    "- Está prohibido indicar que se recibe llamada, aviso o comparecencia cuando el origen sea orden jerárquica.\n"
     "- Si NO existe intervención presencial, no debes simular que los agentes se personan en el lugar.\n"
     "- Si SÍ existe intervención, debes integrarla de forma cronológica coherente tras el inicio.\n\n"
 
     "INTERVENCIÓN POLICIAL:\n"
     "- Si existe personación en el lugar, debes integrar la intervención de los agentes con fórmula técnica policial.\n"
     "- Si la actuación se inicia por comparecencia posterior en dependencias, debes reflejarlo con naturalidad y sin simular una intervención inmediata en vía pública.\n"
+    "- La personación de los agentes debe figurar obligatoriamente en el primer bloque narrativo del informe, inmediatamente después de la recepción del aviso o de la comparecencia en dependencias.\n"
+    "- Está prohibido situar la personación policial en párrafos posteriores si ya constan fecha, hora e indicativo policial.\n"
+    "- La frase de personación debe integrarse de forma natural dentro del párrafo, no como cita independiente ni entrecomillada.\n"
     "- Si se practican gestiones posteriores, debes integrarlas de forma ordenada.\n\n"
 
     "IDENTIFICACIÓN DE AGENTES:\n"
@@ -496,7 +638,9 @@ PROMPT_ACCIDENTE = (
 
     "ESTRUCTURA DE IDENTIFICACIÓN DE VEHÍCULOS Y CONDUCTORES:\n"
     "- Cada vehículo debe ir seguido inmediatamente de su conductor con todos los datos disponibles.\n"
-    "- No debes separar la identificación del vehículo de la del conductor en párrafos distintos.\n\n"
+    "- No debes separar la identificación del vehículo de la del conductor en párrafos distintos.\n"
+    "- Si un conductor es además el alertante, debes indicarlo en esa misma frase de identificación.\n"
+    "- Esta mención debe formar parte de la primera descripción del conductor.\n\n"
 
     "ORDEN DE LAS ACTUACIONES POLICIALES:\n"
     "- Debes respetar el orden cronológico en que aparezcan reflejadas en el campo 'Actuaciones realizadas'.\n"
@@ -518,10 +662,13 @@ PROMPT_ACCIDENTE = (
     "- No menciones personas o vehículos cuyos campos estén vacíos.\n\n"
 
     "ASOCIACIÓN DEL ALERTANTE O REQUIRENTE:\n"
-    "- Debes atender al campo 'Alertante o requirente'.\n"
-    "- Si en dicho campo se indica que el alertante es uno de los implicados, por ejemplo 'conductor del vehículo A' o 'conductor del vehículo B', debes asociarlo a esa persona concreta.\n"
-    "- En ese caso, no debes tratar al alertante como una persona distinta ni duplicar su identidad.\n"
-    "- Si el alertante es un tercero ajeno al accidente, debes reflejarlo como tal.\n\n"
+    "- Debes atender obligatoriamente al campo 'Alertante o requirente'.\n"
+    "- Si el alertante coincide con uno de los conductores implicados, debes identificarlo expresamente como tal.\n"
+    "- Esta identificación es obligatoria y no puede omitirse.\n"
+    "- Debes integrarlo en el mismo párrafo de identificación del conductor.\n"
+    "- Debes usar una fórmula equivalente a: 'resulta ser asimismo el alertante del siniestro'.\n"
+    "- Está prohibido omitir esta información cuando exista coincidencia.\n"
+    "- Está prohibido colocar esta información en un párrafo distinto al de identificación del conductor.\n\n"
 
     "NÚMERO DE VEHÍCULOS IMPLICADOS:\n"
     "- Debes integrar expresamente el número de vehículos implicados si consta en los datos.\n"
@@ -564,7 +711,7 @@ PROMPT_ACCIDENTE = (
 
     "DINÁMICA DEL SINIESTRO:\n"
     "- Cuando la dinámica se apoye en las manifestaciones de las partes, debes introducirla preferentemente con fórmulas como: 'Que recogidas manifestaciones a las partes implicadas...' o 'Que recogidas manifestaciones de las partes implicadas...'.\n"
-    "- Debes evitar fórmulas artificiales como 'Que el relato técnico del accidente indica...'.\n"
+    "- Debes evitar fórmulas artificiales como 'Que el relato técnico del accidente (¿Qué ha pasado?) indica...'.\n"
     "- Debes reconstruir el accidente de forma técnica completa.\n"
     "- Debes describir:\n"
     "  1. Situación previa de los vehículos.\n"
@@ -581,7 +728,7 @@ PROMPT_ACCIDENTE = (
     "- Si no consta, no la inventes.\n\n"
 
    "PRUEBAS DE ALCOHOLEMIA Y DROGAS:\n"
-    "- Solo debes hacer mención a pruebas de alcoholemia si el campo 'Prueba de alcoholemia (indicar resultado o 'no procede')' contiene información expresa y concreta.\n"
+    "- Solo debes hacer mención a pruebas de alcoholemia si el campo 'Prueba de alcoholemia (indicar resultado)' contiene información expresa y concreta.\n"
     "- Si dicho campo está vacío, no consta o no aporta contenido material suficiente, está prohibido mencionar la realización de pruebas de alcoholemia, aunque en otros campos del formulario aparezcan referencias indirectas, consecuencias administrativas, denuncias o sospechas relacionadas.\n"
     "- Si se realizan pruebas de alcoholemia y así consta en ese campo específico, debes redactar obligatoriamente un párrafo específico de alcoholemia.\n"
     "- En ese párrafo debes indicar expresamente, de forma obligatoria y no resumible, que se informa a los conductores de su obligación de someterse a las pruebas por estar implicados en un siniestro vial, en base al artículo 14 del Real Decreto Legislativo 6/2015, de 30 de octubre, por el que se aprueba el texto refundido de la Ley sobre Tráfico, Circulación de Vehículos a Motor y Seguridad Vial.\n"
@@ -589,7 +736,7 @@ PROMPT_ACCIDENTE = (
     "- Está prohibido redactar un párrafo de alcoholemia sin incluir esa referencia legal completa.\n"
     "- La referencia legal de alcoholemia debe aparecer antes de indicar los resultados.\n"
     "- Si constan resultados de alcoholemia, debes indicarlos expresamente con su unidad y con la fórmula 'mg/L en aire espirado'. Ejemplo: '0,48 mg/L en aire espirado'.\n"
-    "- Solo debes hacer mención a pruebas de drogas si el campo 'Prueba de drogas (indicar resultado o 'no procede')' contiene información expresa y concreta.\n"
+    "- Solo debes hacer mención a pruebas de drogas si el campo 'Prueba de drogas (signos, indicar resultado)' contiene información expresa y concreta.\n"
     "- Si dicho campo está vacío, no consta o no aporta contenido material suficiente, está prohibido mencionar la realización de pruebas de drogas, aunque en otros campos del formulario aparezcan referencias indirectas, denuncias, signos, sospechas, resultados o consecuencias administrativas relacionadas con drogas.\n"
     "- Si se realizan pruebas de drogas y así consta en ese campo específico, debes redactar obligatoriamente un párrafo específico indicando que se informa a los conductores de su obligación de someterse a una prueba para la detección de sustancias estupefacientes, psicotrópicos, estimulantes u otras sustancias análogas por estar implicados en un siniestro vial, y que dicha prueba se realiza en base a los artículos 27 y 28 del Real Decreto 1428/2003, de 21 de noviembre, por el que se aprueba el Reglamento General de Circulación.\n"
     "- Si en el campo específico de prueba de drogas constan signos externos compatibles con el consumo (por ejemplo: ojos vidriosos, habla pastosa, nerviosismo, pupilas dilatadas, incoherencias, etc.), debes mencionarlos obligatoriamente en el mismo párrafo, incluso si el resultado es negativo.\n"
@@ -609,23 +756,44 @@ PROMPT_ACCIDENTE = (
     "- Toda la información contenida en dicho campo debe ser integrada en el informe si es relevante.\n"
     "- No debes tratar este campo como secundario ni opcional.\n"
     "- No debes omitir información contenida en este campo.\n"
+    "- Si en 'Observaciones adicionales' consta expresamente el número de denuncias administrativas, debes respetarlo exactamente y no modificarlo.\n"
     "- Debes integrarlo de forma coherente dentro del informe, ya sea en las actuaciones, en la dinámica, en las pruebas o en la conclusión, según corresponda.\n"
     "- Si el campo contiene consecuencias administrativas, denuncias, circunstancias relevantes, ampliaciones de hechos o cualquier dato técnico, debes reflejarlo expresamente.\n"
     "- Está prohibido ignorar o perder información procedente de este campo.\n\n"
 
+    "ASISTENCIA SANITARIA:\n"
+    "- Debes utilizar terminología médica básica adecuada, como 'dolor cervical', 'dolor torácico', 'contusión', etc., evitando expresiones coloquiales como 'dolor en el cuello' o 'dolor en el pecho'.\n"
+    "- Si consta el campo 'Asistencia sanitaria (personas asistidas, indicativo sanitario, hora de llegada, hora de salida, lugar de traslado)', debes integrarlo obligatoriamente en un párrafo propio inmediatamente antes de la conclusión.\n"
+    "- Debes indicar expresamente:\n"
+    "  - Qué personas reciben asistencia sanitaria.\n"
+    "  - El indicativo del recurso sanitario si consta.\n"
+    "  - La hora de llegada del recurso sanitario.\n"
+    "  - La hora de finalización de la asistencia o salida del lugar.\n"
+    "- Si consta que las personas abandonan el lugar en ambulancia, debes indicarlo expresamente.\n"
+    "- Si la asistencia se realiza en el lugar sin traslado, debes indicarlo expresamente.\n"
+    "- Debes redactarlo como actuación policial integrada en el desarrollo del informe.\n"
+    "- Está prohibido inventar lesiones, diagnósticos o destinos hospitalarios si no constan.\n"
+    "- Está prohibido omitir este campo cuando exista información en él.\n"
+    "- Este párrafo debe ir situado inmediatamente antes de la conclusión.\n\n"
+
     "CONCLUSIÓN:\n"
     "- La conclusión debe comenzar con: 'Que a la vista de todo lo expuesto, se concluye que...'.\n"
+    "- Debes evitar expresiones genéricas como 'no circula con la diligencia debida'.\n"
+    "- Debes formular la causa en términos técnicos de conducción y dinámica del siniestro.\n"
     "- Debe ser técnica, prudente y basada en los datos facilitados.\n\n"
     "- Debes basarte en daños, manifestaciones y configuración de la vía.\n"
     "- Debes explicar la dinámica antes de concluir.\n"
     "- Evita conclusiones genéricas.\n"
+    "- Debes evitar expresiones genéricas como 'no circula con la diligencia debida'.\n"
+    "- Debes describir la causa del siniestro en términos técnicos de conducción (alcance, falta de distancia de seguridad, no adaptación a las circunstancias del tráfico, etc.).\n"
     "- Si existen infracciones administrativas derivadas de las actuaciones realizadas (alcoholemia, drogas, documentación, señalización, maniobras, etc.), debes mencionarlas expresamente en una frase independiente dentro de la conclusión.\n"
-    "- Debes utilizar una estructura equivalente a: 'Que por otro lado, como resultado de las actuaciones practicadas, se formula denuncia administrativa a [persona] por [hecho concreto]'.\n"
+    "- Si en los datos consta una sola denuncia administrativa, debes utilizar una estructura equivalente a: "
+    "'Que por otro lado, como resultado de las actuaciones practicadas, se formula denuncia administrativa a [persona] por [hecho concreto]'.\n"
+    "- Si en los datos constan varias denuncias administrativas, debes reflejarlo expresamente en plural, respetando el número indicado en los datos.\n"
+    "- En caso de plural, debes utilizar una estructura equivalente a: "
+    "'Que por otro lado, como resultado de las actuaciones practicadas, se formulan dos denuncias administrativas a [persona] por [hechos concretos]'.\n\n"
     "- Está prohibido vincular la denuncia administrativa como causa del accidente si no existe relación directa.\n"
     "- Debe tener nivel técnico real de informe policial de tráfico.\n\n"
-
-    "CIERRE:\n"
-    "- Debes finalizar exactamente con: 'Y para que así conste, se extiende el presente informe técnico policial, que se emite en base a las manifestaciones recabadas y análisis de las circunstancias concurrentes, quedando sometido a cualquier otro mejor fundado.'\n\n"
 
     "ESTILO:\n"
     "- Usa lenguaje técnico-policial real.\n"
@@ -649,6 +817,13 @@ PROMPT_ACCIDENTE = (
     "- Debes utilizar una estructura equivalente a: 'Que por otro lado, como resultado de las actuaciones practicadas, se formula denuncia administrativa a [persona] por [hecho literal indicado en los datos]'.\n\n"
     
     + REGLAS_COMUNES_NO_INVENTAR
+    + "\n\n"
+    + BLOQUE_REGLAS_POLICIALES
+    + "\n"
+    + BLOQUE_PERSONACION_OBLIGATORIA
+    + "\n"
+    + BLOQUE_ORDEN_JERARQUICA
+    + "\n"
 )
 
 PROMPT_ATESTADO_EXPOSICION = (
@@ -666,10 +841,15 @@ PROMPT_ATESTADO_EXPOSICION = (
     "ORIGEN DE LA ACTUACIÓN:\n"
     "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
-    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar el relato como recepción de llamada o aviso.\n"
+    + BLOQUE_AVISOS +
     "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
     "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes observan...'.\n"
     "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
+    "- Si el origen es 'Orden jerárquica', debes iniciar la redacción indicando que la actuación se realiza por orden jerárquica.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que por orden jerárquica...' o 'Que en cumplimiento de orden jerárquica...'.\n"
+    "- Si consta el campo 'Orden jerárquica (autoridad que la dicta)', debes indicar expresamente dicha autoridad.\n"
+    "- Debes integrarlo con una fórmula equivalente a: 'Que en cumplimiento de orden jerárquica dictada por [autoridad]...'.\n"
+    "- Está prohibido indicar que se recibe llamada, aviso o comparecencia cuando el origen sea orden jerárquica.\n"
     "- Si no existe intervención presencial, no debes simular personación policial en el lugar.\n"
     "- Si existe intervención presencial, debes integrarla de forma cronológica y coherente.\n\n"
 
@@ -706,6 +886,13 @@ PROMPT_ATESTADO_EXPOSICION = (
     "'Que se procede a la confección de las presentes diligencias a los efectos oportunos.'\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
+    + "\n\n"
+    + BLOQUE_REGLAS_POLICIALES
+    + "\n"
+    + BLOQUE_PERSONACION_OBLIGATORIA
+    + "\n"
+    + BLOQUE_ORDEN_JERARQUICA
+    + "\n"
 )
 
 PROMPT_ATESTADO_INSPECCION = (
@@ -715,6 +902,14 @@ PROMPT_ATESTADO_INSPECCION = (
     "El texto debe ir íntegramente en prosa y todos los párrafos deben comenzar por 'Que'.\n"
     "No debes incluir encabezados tipo ficha, valoraciones jurídicas ni conclusiones.\n"
     "No debes mezclar la inspección ocular con la comparecencia inicial ni con diligencias posteriores.\n\n"
+
+    "TIEMPO VERBAL (OBLIGATORIO Y CRÍTICO):\n"
+    "- Toda la inspección ocular debe redactarse en tiempo presente narrativo policial.\n"
+    "- Está prohibido utilizar el pasado en cualquier forma verbal.\n"
+    "- Ejemplos correctos: 'se persona', 'se observa', 'se constata', 'se localiza'.\n"
+    "- Ejemplos incorrectos: 'se personaron', 'se observó', 'se constató'.\n"
+    "- El uso del pasado en la inspección ocular se considera un error grave de redacción y debe evitarse en todo caso.\n"
+    "- Antes de generar la respuesta final, debes revisar que todos los verbos estén en presente.\n\n"
 
     "FINALIDAD:\n"
     "- Describir exclusivamente lo observado por los agentes en el lugar.\n"
@@ -744,6 +939,13 @@ PROMPT_ATESTADO_INSPECCION = (
     "- No debes cerrar con fórmulas de conclusión ni de valoración.\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
+    + "\n\n"
+    + BLOQUE_REGLAS_POLICIALES
+    + "\n"
+    + BLOQUE_PERSONACION_OBLIGATORIA
+    + "\n"
+    + BLOQUE_ORDEN_JERARQUICA
+    + "\n"
 )
 
 PROMPT_INFORME_MUNICIPAL = (
@@ -761,8 +963,13 @@ PROMPT_INFORME_MUNICIPAL = (
     "ORIGEN DE LA ACTUACIÓN:\n"
     "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes redactar el inicio como comparecencia en dependencias policiales.\n"
-    "- Si el origen es 'Llamada / aviso telefónico', debes redactar el inicio como recepción de llamada o aviso.\n"
+    + BLOQUE_AVISOS +
     "- Si el origen es 'Actuación de oficio', no debes indicar en ningún caso que se recibe llamada, aviso o requerimiento.\n"
+    "- Si el origen es 'Orden jerárquica', debes iniciar la redacción indicando que la actuación se realiza por orden jerárquica.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que por orden jerárquica...' o 'Que en cumplimiento de orden jerárquica...'.\n"
+    "- Si consta el campo 'Orden jerárquica (autoridad que la dicta)', debes indicar expresamente dicha autoridad.\n"
+    "- Debes integrarlo con una fórmula equivalente a: 'Que en cumplimiento de orden jerárquica dictada por [autoridad]...'.\n"
+    "- Está prohibido indicar que se recibe llamada, aviso o comparecencia cuando el origen sea orden jerárquica.\n"
     "- En los supuestos de actuación de oficio, debes usar fórmulas como: 'Que realizando labores propias del cargo...' o 'Que los agentes actuantes observan...'.\n"
     "- No debes mezclar 'actuación de oficio' con 'se recibe aviso'.\n\n"
 
@@ -780,10 +987,14 @@ PROMPT_INFORME_MUNICIPAL = (
     "- No inventar datos.\n"
     "- Si un dato no consta, se omite.\n"
     "- No escribir 'No consta'.\n"
+    "- Debes usar terminología correcta en castellano técnico.\n"
+    "- Ejemplo: 'drone' en lugar de 'dron'.\n"
     "- No usar expresiones como 'Se observa que', usar siempre 'Que'.\n\n"
 
     "IDENTIFICACIÓN DE PERSONAS:\n"
     "- No debes incluir datos personales en el texto (DNI, teléfonos, direcciones completas).\n"
+    "- Siempre que se mencione a una persona por su nombre, debe ir precedido obligatoriamente de 'D.' o 'Dña.' según corresponda.\n"
+    "- Está prohibido mencionar nombres sin dicho tratamiento.\n"
     "- Debes referirte a las personas como:\n"
     "  - 'Filiado A', 'Filiado B', 'Filiado C' (hombres)\n"
     "  - 'Filiada A', 'Filiada B', 'Filiada C' (mujeres)\n"
@@ -814,6 +1025,13 @@ PROMPT_INFORME_MUNICIPAL = (
     "- No añadir información que no esté en los datos proporcionados.\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
+    + "\n\n"
+    + BLOQUE_REGLAS_POLICIALES
+    + "\n"
+    + BLOQUE_PERSONACION_OBLIGATORIA
+    + "\n"
+    + BLOQUE_ORDEN_JERARQUICA
+    + "\n"
 )
 
 PROMPT_PARTE_SERVICIO = (
@@ -829,11 +1047,16 @@ PROMPT_PARTE_SERVICIO = (
     "ORIGEN DE LA ACTUACIÓN:\n"
     "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
-    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar el relato como recepción de llamada o aviso.\n"
+    + BLOQUE_AVISOS +
     "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
     "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes actuantes observan...'.\n"
     "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
     "- Si no existe intervención presencial, no debes simular personación policial en el lugar.\n"
+    "- Si el origen es 'Orden jerárquica', debes iniciar la redacción indicando que la actuación se realiza por orden jerárquica.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que por orden jerárquica...' o 'Que en cumplimiento de orden jerárquica...'.\n"
+    "- Si consta el campo 'Orden jerárquica (autoridad que la dicta)', debes indicar expresamente dicha autoridad.\n"
+    "- Debes integrarlo con una fórmula equivalente a: 'Que en cumplimiento de orden jerárquica dictada por [autoridad]...'.\n"
+    "- Está prohibido indicar que se recibe llamada, aviso o comparecencia cuando el origen sea orden jerárquica.\n"
     "- Si existe intervención presencial, debes integrarla de forma cronológica y coherente.\n\n"
 
     "ESTRUCTURA:\n"
@@ -858,6 +1081,13 @@ PROMPT_PARTE_SERVICIO = (
     "  'Que se procede a la confección del presente parte de servicio a los efectos oportunos.'\n\n"
     
     + REGLAS_COMUNES_NO_INVENTAR
+    + "\n\n"
+    + BLOQUE_REGLAS_POLICIALES
+    + "\n"
+    + BLOQUE_PERSONACION_OBLIGATORIA
+    + "\n"
+    + BLOQUE_ORDEN_JERARQUICA
+    + "\n"
 )
 
 PROMPT_ANOMALIA = (
@@ -873,10 +1103,15 @@ PROMPT_ANOMALIA = (
     "ORIGEN DE LA ACTUACIÓN:\n"
     "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
-    "- Si el origen es 'Llamada / aviso telefónico', debes iniciar el relato como recepción de llamada o aviso.\n"
+    + BLOQUE_AVISOS +
     "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
     "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes actuantes observan...'.\n"
     "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
+    "- Si el origen es 'Orden jerárquica', debes iniciar la redacción indicando que la actuación se realiza por orden jerárquica.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que por orden jerárquica...' o 'Que en cumplimiento de orden jerárquica...'.\n"
+    "- Si consta el campo 'Orden jerárquica (autoridad que la dicta)', debes indicar expresamente dicha autoridad.\n"
+    "- Debes integrarlo con una fórmula equivalente a: 'Que en cumplimiento de orden jerárquica dictada por [autoridad]...'.\n"
+    "- Está prohibido indicar que se recibe llamada, aviso o comparecencia cuando el origen sea orden jerárquica.\n"
     "- Si no existe intervención presencial, no debes simular personación policial en el lugar.\n"
     "- Si existe intervención presencial, debes integrarla de forma cronológica y coherente.\n\n"
 
@@ -892,10 +1127,23 @@ PROMPT_ANOMALIA = (
     "- Sin narrativa innecesaria.\n"
     "- No inventar.\n\n"
 
+    "TRATAMIENTO DEL CAMPO 'OBSERVACIONES ADICIONALES':\n"
+    "- Debes atender obligatoriamente al campo 'Observaciones adicionales'.\n"
+    "- Toda la información contenida en ese campo debe integrarse expresamente en el texto final si resulta relevante para la gestión, urgencia, necesidad de actuación o cualquier otra circunstancia de interés.\n"
+    "- Está prohibido omitir el contenido de 'Observaciones adicionales' cuando complemente, matice o refuerce la incidencia descrita.\n"
+    "- Si en ese campo se indica urgencia o necesidad de actuación rápida, debes reflejarlo de forma expresa con fórmulas equivalentes a: 'requiriéndose actuación a la mayor brevedad posible' o 'requiriéndose tratamiento urgente de la incidencia'.\n\n"
+
     "CIERRE:\n"
     "- 'Que se pone en conocimiento a los efectos oportunos.'\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
+    + "\n\n"
+    + BLOQUE_REGLAS_POLICIALES
+    + "\n"
+    + BLOQUE_PERSONACION_OBLIGATORIA
+    + "\n"
+    + BLOQUE_ORDEN_JERARQUICA
+    + "\n"
 )
 
 PROMPT_INFORME_JUZGADO = (
@@ -931,6 +1179,13 @@ PROMPT_INFORME_JUZGADO = (
     "- Puedes cerrar con fórmulas como 'sin que se obtenga resultado positivo' o 'sin que consten más extremos relevantes'.\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
+    + "\n\n"
+    + BLOQUE_REGLAS_POLICIALES
+    + "\n"
+    + BLOQUE_PERSONACION_OBLIGATORIA
+    + "\n"
+    + BLOQUE_ORDEN_JERARQUICA
+    + "\n"
 )
 
 
@@ -1018,16 +1273,17 @@ CAMPOS_ACCIDENTE = [
     # ===== HECHOS =====
     "Daños observados",
     "Posición de los vehículos a la llegada de los agentes",
-    "Relato técnico del accidente",
+    "Relato técnico del accidente (¿Qué ha pasado?)",
     "Actuaciones realizadas",
 
     # ===== PRUEBAS =====
     "Reportaje fotográfico (sí/no)",
-    "Prueba de alcoholemia (indicar resultado o 'no procede')",
-    "Prueba de drogas (indicar resultado o 'no procede')",
+    "Prueba de alcoholemia (indicar resultado)",
+    "Prueba de drogas (signos, indicar resultado)",
 
     # ===== FINAL =====
-    "Conclusión técnica",
+    "Asistencia sanitaria (personas asistidas, indicativo sanitario, hora de llegada, hora de salida, lugar de traslado)",
+    "Conclusión técnica (¿Por qué ha pasado?)",
     "Observaciones adicionales",
 ]
 
@@ -1201,6 +1457,15 @@ OPCIONES_SELECT = {
     ],
 }
 
+CAMPOS_GRANDES = {
+    "Asunto",
+    "Relato técnico del accidente (¿Qué ha pasado?)",
+    "Actuaciones realizadas",
+    "Asistencia sanitaria (personas asistidas, indicativo sanitario, hora de llegada, hora de salida, lugar de traslado)",
+    "Conclusión técnica (¿Por qué ha pasado?)",
+    "Observaciones adicionales",
+}
+
 
 # =========================================================
 # COMPONENTES UI
@@ -1218,7 +1483,7 @@ def render_form_fields_grupo(titulo: str, campos: list[str], key_prefix: str) ->
     )
     return render_form_fields(campos, key_prefix)
 
-def selector_contexto_actuacion_general(key_prefix: str) -> tuple[str, str]:
+def selector_contexto_actuacion_general(key_prefix: str) -> tuple[str, str, str]:
     col1, col2 = st.columns(2)
 
     with col1:
@@ -1226,12 +1491,21 @@ def selector_contexto_actuacion_general(key_prefix: str) -> tuple[str, str]:
             "Origen de la actuación",
             [
                 "Comparecencia en jefatura",
-                "Llamada / aviso telefónico",
+                "Aviso telefónico",
+                "Aviso en la calle",
                 "Actuación de oficio",
+                "Orden jerárquica",
             ],
             key=f"origen_actuacion_{key_prefix}",
         )
 
+        orden_autoridad = ""
+        if origen == "Orden jerárquica":
+            orden_autoridad = st.text_input(
+                "Autoridad que dicta la orden",
+                key=f"orden_autoridad_{key_prefix}",
+                placeholder="Ej: Jefatura de Policía Local"
+            )
 
     with col2:
         intervencion = st.radio(
@@ -1240,7 +1514,7 @@ def selector_contexto_actuacion_general(key_prefix: str) -> tuple[str, str]:
             key=f"intervencion_presencial_{key_prefix}",
         )
 
-    return origen, intervencion
+    return origen, intervencion, orden_autoridad
 
 
 def pagina_informe_municipal(api_key: str):
@@ -1248,7 +1522,7 @@ def pagina_informe_municipal(api_key: str):
     cabecera_modulo("Informe municipal", "🏛️")
 
     bloque_texto_a_campos(api_key, "municipal", "Informe municipal", CAMPOS_INFORME_MUNICIPAL)
-    origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
+    origen_actuacion, intervencion_presencial, orden_autoridad = selector_contexto_actuacion_general(key_prefix)
 
     col_tools_1, col_tools_2 = st.columns(2)
     with col_tools_1:
@@ -1325,6 +1599,7 @@ def pagina_informe_municipal(api_key: str):
             datos,
             origen_actuacion,
             intervencion_presencial,
+            orden_autoridad,
         )
 
         observaciones = datos.get("Observaciones adicionales", "")
@@ -1339,9 +1614,6 @@ def pagina_informe_municipal(api_key: str):
         with st.spinner("Generando informe..."):
             texto = generar_texto_con_ia(api_key, prompt_final, bloque)
 
-        if st.session_state.get("debug_mode", False):
-            st.write("DEBUG - RESULTADO IA INFORME MUNICIPAL:")
-            st.text(texto)
 
         st.session_state["resultado_municipal"] = texto
         st.session_state["datos_municipal"] = datos
@@ -1423,15 +1695,16 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
                 key=clave_widget,
             )
 
-        # ===== EXCEPCIONES DE TAMAÑO =====
-        elif campo in {"Asunto"}:
+        # ===== CAMPOS GRANDES =====
+        elif campo in CAMPOS_GRANDES:
             valor = st.text_area(
                 campo,
                 value=st.session_state.get(clave_widget, st.session_state.get(clave, "")),
                 key=clave_widget,
-                height=100,
+                height=130,
             )
 
+        # ===== CAMPOS CORTOS FORZADOS =====
         elif campo in {
             "Agentes",
             "Agentes actuantes (NIP)",
@@ -1468,7 +1741,6 @@ def render_form_fields(campos: list[str], key_prefix: str) -> dict:
             "órgano judicial",
             "organo judicial",
             "procedimiento",
-            "asunto",
             "tipo de informe al juzgado",
             "tipo de anomalía",
             "norma administrativa aplicada",
@@ -1530,6 +1802,7 @@ def resetear_formulario(key_prefix: str, claves_resultado: list[str] | None = No
             or clave == f"contexto_actuacion_{key_prefix}"
             or clave == f"origen_actuacion_{key_prefix}"
             or clave == f"intervencion_presencial_{key_prefix}"
+            or clave == f"orden_autoridad_{key_prefix}"
             or clave == f"nombre_informe_municipal"
         ):
             claves_a_borrar.append(clave)
@@ -1839,7 +2112,7 @@ def generar_modulo_simple(
 
     bloque_texto_a_campos(api_key, key_prefix, tipo_documento, campos)
 
-    origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
+    origen_actuacion, intervencion_presencial, orden_autoridad = selector_contexto_actuacion_general(key_prefix)
 
     col_tools_1, col_tools_2 = st.columns(2)
     with col_tools_1:
@@ -1850,7 +2123,7 @@ def generar_modulo_simple(
         st.caption("Pega un texto base o rellena los campos manualmente.")
 
     datos = render_form_fields(campos, key_prefix)
-
+    
     if callable(transformar_datos):
         datos_transformados = transformar_datos(datos)
         if datos_transformados is not None:
@@ -1870,6 +2143,7 @@ def generar_modulo_simple(
             datos,
             origen_actuacion,
             intervencion_presencial,
+            orden_autoridad,
         )
         debug_log("DATOS PARA IA", bloque)
 
@@ -1894,7 +2168,7 @@ def pagina_atestado(api_key: str):
     cabecera_modulo("Atestado completo", "📄")
     
     bloque_texto_a_campos(api_key, "atestado", "Atestado completo", CAMPOS_ATESTADO_COMPLETO)
-    origen_actuacion, intervencion_presencial = selector_contexto_actuacion_general(key_prefix)
+    origen_actuacion, intervencion_presencial, orden_autoridad = selector_contexto_actuacion_general(key_prefix)
 
     col_tools_1, col_tools_2 = st.columns(2)
     with col_tools_1:
@@ -1916,6 +2190,7 @@ def pagina_atestado(api_key: str):
             datos,
             origen_actuacion,
             intervencion_presencial,
+            orden_autoridad,
         )
         debug_log("DATOS PARA IA ATESTADO", bloque)
 
@@ -2216,7 +2491,7 @@ def aplicar_estilos(modo_patrulla: bool):
 st.sidebar.title("Policía Local IA")
 st.sidebar.caption("Versión web para ordenador y móvil")
 
-modo_patrulla = st.sidebar.toggle("Modo patrulla / móvil", value=True)
+modo_patrulla = st.sidebar.toggle("Modo patrulla / móvil", value=False)
 st.session_state["modo_patrulla_activo"] = modo_patrulla
 
 debug_mode = st.sidebar.toggle("Modo debug", value=False)
