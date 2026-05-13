@@ -54,6 +54,20 @@ def guardar_json(datos: dict, prefijo: str) -> str:
     return ruta
 
 
+def guardar_log_generacion(modulo: str, datos_form: dict, bloque_ia: str, resultado: str) -> None:
+    asegurar_carpeta("logs")
+    marca_tiempo = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ruta = os.path.join("logs", f"{modulo}_{marca_tiempo}.json")
+    with open(ruta, "w", encoding="utf-8") as f:
+        json.dump({
+            "modulo": modulo,
+            "timestamp": marca_tiempo,
+            "datos_formulario": datos_form,
+            "bloque_enviado_ia": bloque_ia,
+            "resultado_generado": resultado,
+        }, f, ensure_ascii=False, indent=2)
+
+
 def guardar_txt_con_nombre(documento: str, nombre: str) -> str:
     asegurar_carpeta("informes")
     ruta = os.path.join("informes", f"{nombre}.txt")
@@ -425,10 +439,11 @@ BLOQUE_CONTEXTO_JEFATURA = (
 )
 
 BLOQUE_TIEMPO_PRESENTE = (
-    "TIEMPO VERBAL:\n"
+    "TIEMPO VERBAL (CRÍTICO — SIN EXCEPCIONES):\n"
     "- Toda la redacción debe realizarse en tiempo presente narrativo policial.\n"
-    "- Ejemplos correctos: 'se recibe aviso', 'se personan los agentes', 'se observa', 'se realiza', 'donde ocurre el siniestro'.\n"
-    "- No utilices pasado en ningún caso.\n"
+    "- Está PROHIBIDO el uso de cualquier forma de pasado: pretérito perfecto simple ('se observó', 'se realizó'), pretérito perfecto compuesto ('se han observado', 'no se han encontrado', 'se ha realizado') y pretérito imperfecto.\n"
+    "- Ejemplos correctos: 'se recibe aviso', 'se personan los agentes', 'se observa', 'se realiza', 'no se observan', 'no se localizan'.\n"
+    "- Ejemplos incorrectos (prohibidos): 'se observó', 'se ha observado', 'no se han observado', 'se personó', 'se realizaron'.\n"
 )
 
 BLOQUE_PERSONACION_OBLIGATORIA = (
@@ -436,7 +451,11 @@ BLOQUE_PERSONACION_OBLIGATORIA = (
     "- Si existe intervención presencial en el lugar, debes reflejar la personación de los agentes.\n"
     "- Si en los datos aparece una 'FRASE DE PERSONACIÓN OBLIGATORIA', debes integrarla obligatoriamente.\n"
     "- Debes reproducirla de forma literal o muy próxima.\n"
-    "- Está prohibido omitirla si está presente.\n\n"
+    "- Está prohibido omitirla si está presente.\n"
+    "- FÓRMULA ESTÁNDAR DE PERSONACIÓN (obligatoria en todos los módulos): cuando los agentes acuden a un lugar, debes usar una fórmula equivalente a:\n"
+    "  'Que los agentes con NIP [NIP1] y NIP [NIP2], uniformados reglamentariamente, se personan en el lugar en vehículo oficial rotulado bajo el indicativo policial [indicativo].'\n"
+    "- Si no consta el indicativo, omitir esa parte pero mantener el resto.\n"
+    "- Está prohibido describir la personación sin mencionar los NIPs y la condición de uniformados reglamentariamente.\n\n"
 )
 
 BLOQUE_ORDEN_JERARQUICA = (
@@ -475,9 +494,16 @@ PROMPT_INTERCOPS_PREFIX = (
     "Genera texto nuevo y mejorado; no lo copies literalmente.\n\n"
 
     "IDENTIFICACIÓN DE NIPs (CRÍTICO):\n"
-    "- Los NIPs que aparecen en campos como 'Agentes actuantes', 'Patrulla', 'Intervinientes' o en el cuerpo del parte → son los AGENTES ACTUANTES. Úsalos en la cabecera y el cuerpo.\n"
-    "- Los NIPs que aparecen en campos como 'Supervisor', 'Jefe de turno', 'Validador', 'Firmante', 'Visto bueno' o similar → son NIPs de gestión administrativa del sistema Intelcops. NO los menciones en el documento generado bajo ningún concepto.\n"
+    "- Los NIPs que aparecen en campos como 'Agentes actuantes', 'Patrulla', 'Intervinientes' o en la Minuta policial → son los AGENTES ACTUANTES. Úsalos en la cabecera y el cuerpo.\n"
+    "- Los NIPs que aparecen en campos como 'Supervisor', 'Jefe de turno', 'Validador', 'Firmante', 'Visto bueno' o similar → son NIPs de gestión administrativa. NO los menciones bajo ningún concepto.\n"
     "- El supervisor o jefe que valida el parte en Intelcops no es un agente actuante y no debe aparecer en el documento.\n\n"
+
+    "NOMBRES DE AGENTES (PROHIBICIÓN ABSOLUTA):\n"
+    "- Está TERMINANTEMENTE PROHIBIDO incluir el nombre de cualquier agente en el documento generado.\n"
+    "- Los agentes se identifican EXCLUSIVAMENTE por su NIP. Nunca por su nombre ni apellidos.\n"
+    "- Intelcops muestra los agentes en formato 'NIP | APELLIDO (Nombre Apellido)'. Solo debes usar el número NIP.\n"
+    "- Ejemplo correcto: 'los agentes con NIP 211024 y NIP 211107'.\n"
+    "- Ejemplo PROHIBIDO: 'el agente Estela', 'A211024 Estela', 'Estela Esperón Lamas', 'A211107 Graña'.\n\n"
 
     "INTEGRACIÓN DE MANIFESTACIONES (si las hay):\n"
     "- Las actas de manifestación incluyen: compareciente con DNI, calidad (Denunciante / Testigo / Implicado/a), "
@@ -543,8 +569,11 @@ TRATAMIENTO_PERSONAS_MUNICIPAL = (
 BLOQUE_REGLAS_POLICIALES = """
 REGLAS GENERALES DE REDACCIÓN POLICIAL (OBLIGATORIO):
 
-TIEMPO VERBAL:
+TIEMPO VERBAL (CRÍTICO — SIN EXCEPCIONES):
 - Toda la redacción debe realizarse en tiempo presente narrativo policial.
+- Está PROHIBIDO el uso de cualquier forma de pasado: pretérito perfecto simple ('se observó', 'se realizó', 'se personó'), pretérito perfecto compuesto ('se han observado', 'se han realizado', 'no se han encontrado') y pretérito imperfecto ('se observaba', 'había').
+- Ejemplos correctos: 'se observa', 'se constata', 'se localiza', 'se aprecia', 'no se observan', 'no se localizan'.
+- Ejemplos incorrectos (prohibidos): 'se observó', 'se ha observado', 'no se han observado', 'se personó', 'se realizaron'.
 
 TRATAMIENTO DE PERSONAS:
 - Todas las personas físicas deben figurar siempre como 'D.' o 'Dña.' seguido del nombre completo.
@@ -627,12 +656,37 @@ PROMPT_DENUNCIA_ADMINISTRATIVA = (
 )
 
 PROMPT_INFORME_ACCIDENTE = (
+    "Eres un asistente de redacción policial para Policía Local.\n\n"
+
+    "Debes redactar un INFORME DE SINIESTRO VIAL en castellano, con estilo policial real.\n\n"
+
+    "FORMATO OBLIGATORIO (CRÍTICO):\n"
+    "- El texto debe ser prosa continua. Está PROHIBIDO usar encabezados, negritas, secciones tituladas, listas o guiones.\n"
+    "- TODOS los párrafos deben comenzar por 'Que'.\n"
+    "- No uses formato Markdown. Sin asteriscos, sin ##, sin -, sin *.\n"
+    "- El documento debe poder copiarse directamente a un atestado real sin reformatear.\n\n"
+
+    "PRIORIDAD NARRATIVA — DESCRIPCIÓN DEL AGENTE:\n"
+    "- Si existe un bloque 'DESCRIPCIÓN DE LO OCURRIDO (aportada por el agente)', ese bloque es la FUENTE PRINCIPAL del orden cronológico. Úsalo como esqueleto narrativo del informe.\n"
+    "- Los datos de Intelcops son complementarios: sirven para obtener matrículas, NIPs, DNIs, horas exactas, datos de la vía. No para construir la cronología.\n"
+    "- Si el agente describe una secuencia de eventos (llamada → instrucción de acudir → comparecencia → segunda llamada → personación), respeta esa secuencia exacta.\n\n"
+
+    "CRONOLOGÍA (CRÍTICO):\n"
+    "- Debes redactar los hechos en orden cronológico estricto siguiendo la secuencia real de los eventos.\n"
+    "- SEÑAL INTELCOPS — 'Hora personación: 00:00': este valor indica que los agentes NO se personaron en el lugar en el momento del siniestro. En ese caso, NO redactes ninguna personación policial en la fecha del siniestro. Los agentes solo acuden al lugar si consta una hora de personación real o si las pinceladas lo indican.\n"
+    "- Fases posibles a respetar en orden: (1) llamada/aviso inicial + instrucciones dadas, (2) comparecencia en jefatura si la hay, (3) segunda llamada o aviso posterior, (4) personación de la patrulla al lugar, (5) actuaciones en el lugar e identificaciones in situ.\n"
+    "- Las identificaciones en jefatura ocurren en jefatura. Las identificaciones en el lugar ocurren cuando los agentes están en el lugar. No mezclar.\n"
+    "- El primer párrafo SIEMPRE debe comenzar con la llamada o aviso inicial.\n"
+    "- El teléfono del informante se extrae del campo 'Datos del informante' o del número de teléfono del perjudicado que realiza la llamada.\n"
+    "- Si hay indicativo de patrulla en los datos o en las pinceladas (ej. 'Z3', 'patrulla Z3'), inclúyelo en la fórmula de personación: '...en vehículo oficial rotulado bajo el indicativo [indicativo]'.\n\n"
+
     "DESCRIPCIÓN DE LA VÍA (IMPORTANTE):\n"
     "- Debes ampliar la descripción con elementos técnicos habituales aunque no consten expresamente.\n"
     "- Puedes incluir de forma neutra: visibilidad, señalización horizontal/vertical, anchura suficiente, configuración típica.\n"
     "- No debes inventar datos concretos no facilitados (como señales específicas inexistentes).\n"
     "- Debes incluir si hay aceras, altura de las aceras si están al mismo nivel de la calzada o diferente nivel, arcenes, carriles, mediana, isleta o elementos similares si constan.\n"
-    "- Debes evitar descripciones pobres o excesivamente breves.\n\n"
+    "- Debes evitar descripciones pobres o excesivamente breves.\n"
+    "- PROHIBICIÓN: Está terminantemente prohibido añadir al final de la descripción de la vía cualquier frase valorativa sobre qué factores 'influyeron' o 'no parecen haber influido' en el siniestro. La descripción de la vía es puramente objetiva y descriptiva. Las valoraciones causales pertenecen exclusivamente a la conclusión técnica.\n\n"
 
     "POSICIÓN DE LOS VEHÍCULOS A LA LLEGADA:\n"
     "- Si consta el campo 'Posición de los vehículos a la llegada de los agentes', debes integrarlo en un párrafo propio y técnico.\n"
@@ -647,15 +701,43 @@ PROMPT_INFORME_ACCIDENTE = (
     "- Está prohibido resumir, acortar o sustituir referencias legales obligatorias por fórmulas genéricas como 'se informa de su obligación' sin citar la norma correspondiente cuando el prompt exija citarla.\n"
     "- Toda la redacción debe tener contenido técnico real.\n\n"
 
+    "CAMPO 'CONTENIDO DEL AVISO/ORDEN' DE INTELCOPS (CRÍTICO):\n"
+    "- El campo 'Contenido del aviso/orden' de Intelcops describe el contenido de la llamada o aviso recibido. NO es una orden jerárquica.\n"
+    "- La palabra 'orden' en ese campo es un genérico del formulario (aviso u orden). No implica que la actuación derive de una orden de un superior.\n"
+    "- PROHIBIDO usar 'en cumplimiento de orden jerárquica' o 'por orden jerárquica' basándose en ese campo.\n"
+    "- El origen de la actuación lo determina EXCLUSIVAMENTE el campo 'Origen de la actuación' del CONTEXTO DE ACTUACIÓN que aparece al final del bloque.\n"
+    "- Si ese campo dice 'Aviso telefónico', la personación de los agentes se redacta como 'Que los agentes con NIP... se personan en el lugar...', nunca con 'orden jerárquica'.\n\n"
+
+    "CAMPO 'POSICIONAMIENTO' DE INTELCOPS (CRÍTICO):\n"
+    "- El campo 'Posicionamiento: Presentaba su posición final modificada' es un dato administrativo del formulario del siniestro, no una observación policial directa.\n"
+    "- SOLO usar este dato si los agentes se personaron en el lugar EN EL MOMENTO DEL SINIESTRO y pudieron observarlo.\n"
+    "- Si los agentes llegaron al lugar en un momento diferente (horas o días después), los vehículos ya no están en su posición original. En ese caso, NO usar este dato como descripción de lo observado.\n\n"
+
+    "MANIFESTACIONES DE LAS PARTES (FIDELIDAD EXACTA):\n"
+    "- El informe técnico de accidente es un documento narrativo. Las declaraciones de las partes se integran como prosa, NO en formato de acta de declaración.\n"
+    "- PROHIBIDO usar el formato 'PREGUNTADA... MANIFIESTA...' en el informe técnico. Ese formato pertenece al acta de manifestación, un documento separado.\n"
+    "- Convierte el contenido de las declaraciones en prosa narrativa: 'Que la compareciente manifiesta que...', 'Que D. ... indica que...', 'Que asimismo manifiesta que dispone de fotografías...'.\n"
+    "- Si una persona se identifica en el lugar (no en jefatura), refléjalo como actuación policial in situ, no como acta formal.\n"
+    "- CRÍTICO — fidelidad exacta: Reproduce fielmente el sentido de lo declarado. No distorsiones ni suavices ni endurezcas.\n"
+    "- Ejemplo de distorsión PROHIBIDA: si alguien dice 'si se demuestra que fui yo, no tendría inconveniente en hacerme cargo', NO puedes escribir 'admite los daños' ni 'se hace cargo'. Son cosas distintas jurídicamente.\n"
+    "- No debes inventar manifestaciones ni atribuir declaraciones que no consten en los datos.\n\n"
+
+    "LLAMADA INICIAL — CONTENIDO (CRÍTICO):\n"
+    "- El primer párrafo del informe DEBE comenzar con la hora y fecha del aviso si constan, usando la fórmula: 'Que siendo las [Hora del aviso] horas del día [Fecha del aviso], se recibe llamada telefónica del nº [teléfono] en el teléfono de dotación policial de esta Jefatura...'\n"
+    "- Si solo consta la hora pero no la fecha, usa: 'Que siendo las [hora] horas, se recibe llamada telefónica...'\n"
+    "- Si no consta hora ni fecha del aviso, usa directamente: 'Que se recibe llamada telefónica...'\n"
+    "- Está PROHIBIDO omitir la hora del aviso cuando conste en los datos.\n"
+    "- En el primer párrafo, al describir el contenido de la llamada inicial, usa 'informando sobre daños observados en su vehículo', no 'daños en un vehículo estacionado'. La persona llama para comunicar daños en su propio vehículo.\n"
+    "- Si en los datos consta el número de teléfono del llamante, inclúyelo en la fórmula anterior.\n\n"
+
+    "SEGUNDA LLAMADA — SECUENCIA TEMPORAL:\n"
+    "- Si hay una segunda llamada posterior a la comparecencia en jefatura, describe con precisión el contexto: la compareciente regresa a su lugar de trabajo y desde allí observa nuevamente el vehículo sospechoso estacionado en el mismo lugar, momento en que contacta con la policía.\n"
+    "- No simplificar como 'vuelve a ver el vehículo'. Explicar que estaba en su puesto de trabajo cuando lo observa.\n\n"
+
     "DINÁMICA DEL SINIESTRO:\n"
     "- Cuando la dinámica se apoye en las manifestaciones de las partes, debes introducirla preferentemente con fórmulas como: 'Que recogidas manifestaciones a las partes implicadas...' o 'Que recogidas manifestaciones de las partes implicadas...'.\n"
     "- Debes evitar fórmulas artificiales como 'Que el relato técnico del accidente (¿Qué ha pasado?) indica...'.\n"
-    "- Debes reconstruir el accidente de forma técnica completa.\n"
-    "- Debes describir:\n"
-    "  1. Situación previa de los vehículos.\n"
-    "  2. Maniobra realizada.\n"
-    "  3. Punto exacto de impacto.\n"
-    "  4. Posición final.\n"
+    "- Si no es posible reconstruir la dinámica por ausencia de testigos o datos suficientes, refléjalo expresamente.\n"
     "- Debes basarte en daños y configuración de la vía.\n"
     "- No puedes usar causas genéricas.\n"
     "- Debes describir únicamente hechos técnicos, no valoraciones.\n"
@@ -666,22 +748,26 @@ PROMPT_INFORME_ACCIDENTE = (
     "- Si no consta, no la inventes.\n\n"
 
    "PRUEBAS DE ALCOHOLEMIA Y DROGAS:\n"
-    "- Solo debes hacer mención a pruebas de alcoholemia si el campo 'Prueba de alcoholemia (indicar resultado)' contiene información expresa y concreta.\n"
-    "- Si dicho campo está vacío, no consta o no aporta contenido material suficiente, está prohibido mencionar la realización de pruebas de alcoholemia, aunque en otros campos del formulario aparezcan referencias indirectas, consecuencias administrativas, denuncias o sospechas relacionadas.\n"
-    "- Si se realizan pruebas de alcoholemia y así consta en ese campo específico, debes redactar obligatoriamente un párrafo específico de alcoholemia.\n"
-    "- En ese párrafo debes indicar expresamente, de forma obligatoria y no resumible, que se informa a los conductores de su obligación de someterse a las pruebas por estar implicados en un siniestro vial, en base al artículo 14 del Real Decreto Legislativo 6/2015, de 30 de octubre, por el que se aprueba el texto refundido de la Ley sobre Tráfico, Circulación de Vehículos a Motor y Seguridad Vial.\n"
-    "- Está prohibido omitir la referencia al artículo 14 del Real Decreto Legislativo 6/2015 si en el campo específico consta que se realizaron pruebas de alcoholemia.\n"
-    "- Está prohibido redactar un párrafo de alcoholemia sin incluir esa referencia legal completa.\n"
-    "- La referencia legal de alcoholemia debe aparecer antes de indicar los resultados.\n"
-    "- Si constan resultados de alcoholemia, debes indicarlos expresamente con su unidad y con la fórmula 'mg/L en aire espirado'. Ejemplo: '0,48 mg/L en aire espirado'.\n"
-    "- Solo debes hacer mención a pruebas de drogas si el campo 'Prueba de drogas (signos, indicar resultado)' contiene información expresa y concreta.\n"
-    "- Si dicho campo está vacío, no consta o no aporta contenido material suficiente, está prohibido mencionar la realización de pruebas de drogas, aunque en otros campos del formulario aparezcan referencias indirectas, denuncias, signos, sospechas, resultados o consecuencias administrativas relacionadas con drogas.\n"
-    "- Si se realizan pruebas de drogas y así consta en ese campo específico, debes redactar obligatoriamente un párrafo específico indicando que se informa a los conductores de su obligación de someterse a una prueba para la detección de sustancias estupefacientes, psicotrópicos, estimulantes u otras sustancias análogas por estar implicados en un siniestro vial, y que dicha prueba se realiza en base a los artículos 27 y 28 del Real Decreto 1428/2003, de 21 de noviembre, por el que se aprueba el Reglamento General de Circulación.\n"
-    "- Si en el campo específico de prueba de drogas constan signos externos compatibles con el consumo (por ejemplo: ojos vidriosos, habla pastosa, nerviosismo, pupilas dilatadas, incoherencias, etc.), debes mencionarlos obligatoriamente en el mismo párrafo, incluso si el resultado es negativo.\n"
-    "- Si constan resultados de la prueba de drogas, debes indicarlos expresamente.\n"
-    "- La referencia legal es obligatoria y debe mantenerse siempre, independientemente del resultado de la prueba.\n"
-    "- Está prohibido omitir, resumir o integrar de forma incompleta la referencia legal bajo ningún concepto.\n"
+    "- REGLA DE SILENCIO TOTAL: Si una prueba NO se realizó, NO se menciona en absoluto. Está PROHIBIDO escribir frases como 'no se realiza prueba de drogas', 'no se efectúa control de drogas' o cualquier variante. Silencio completo.\n"
+    "- PATRÓN INTELCOPS A IGNORAR: Intelcops muestra todas las opciones como lista ('Positiva / Negativa / Se niega / No realizada'). Si aparecen varias opciones sin selección clara, la prueba NO se realizó. NO mencionar.\n"
+    "- PROHIBICIÓN ABSOLUTA: Está terminantemente prohibido omitir el bloque de alcoholemia cuando en los datos consta un resultado concreto, aunque sea negativa.\n\n"
+    "- PROTOCOLO OBLIGATORIO DE ALCOHOLEMIA — 3 párrafos 'Que' exactos, cuando hay resultado concreto:\n"
+    "  Párrafo 1 — base legal y supuesto: 'Que al hallarse el conductor D./Dña. [nombre] en uno de los supuestos contemplados en el artículo 14 de la Ley de Seguridad Vial (aprobada por RDL 6/2015, de 30 de octubre), se da comienzo al protocolo establecido para la realización de las pruebas para la detección alcohólica mediante el aire espirado.'\n"
+    "  Párrafo 2 — derechos y obligación: 'Que se le informa de sus derechos y de su obligación de someterse a las pruebas de detección de alcohol, así como del procedimiento reglamentario para su realización, siendo requerido/a de forma expresa para su sometimiento a las mismas.'\n"
+    "  Párrafo 3 — resultado: 'Que tras ser informado/a de los derechos que le asisten y siendo las [hora] horas, D./Dña. [nombre] es sometido/a a la prueba de detección alcohólica en aire espirado mediante etilómetro, arrojando un resultado [negativo/positivo] ([valor] mg/l).'\n"
+    "- Si la hora de la prueba consta en los datos, intégrala en el párrafo 3.\n"
+    "- Si se realizan dos pruebas, describir ambas con sus respectivos resultados y horas.\n\n"
+    "- PROTOCOLO OBLIGATORIO DE DROGAS — solo si hay resultado concreto:\n"
+    "  Párrafo 1 — base legal: referencia a los artículos 27 y 28 del Real Decreto 1428/2003, de 21 de noviembre (Reglamento General de Circulación).\n"
+    "  Párrafo 2 — información de derechos y obligación, requerimiento al conductor.\n"
+    "  Párrafo 3 — resultado con signos externos observados si constan.\n"
     "- No debes afirmar infracción si no procede.\n\n"
+
+    "ASISTENCIA SANITARIA:\n"
+    "- REGLA PRINCIPAL: Solo mencionar si hay datos concretos de asistencia efectiva (indicativo sanitario, hora de llegada, personas asistidas, traslado).\n"
+    "- PATRÓN INTELCOPS A IGNORAR: Intelcops muestra 'Intervención 061 - ambulancia: Sí / No' como lista de opciones. Si aparecen ambas opciones sin selección clara, o si los campos de lesividad indican 'Ileso, sin asistencia sanitaria', NO mencionar asistencia sanitaria.\n"
+    "- Si consta asistencia real: integrarlo en párrafo propio antes de la conclusión, indicando personas asistidas, indicativo, horas y destino si constan.\n"
+    "- Está prohibido inventar lesiones, diagnósticos o destinos hospitalarios si no constan.\n\n"
 
     "REPORTAJE FOTOGRÁFICO:\n"
     "- Si el campo 'Reportaje fotográfico (sí/no)' es 'Sí', debes redactar un párrafo exclusivo e independiente para ello.\n"
@@ -715,23 +801,35 @@ PROMPT_INFORME_ACCIDENTE = (
     "- Este párrafo debe ir situado inmediatamente antes de la conclusión.\n\n"
 
     "CONCLUSIÓN:\n"
-    "- Comienza con: 'Que a la vista de todo lo expuesto, se concluye que...'.\n"
-    "- Explica primero la dinámica, después concluye.\n"
-    "- Describe la causa en términos técnicos de conducción (alcance, falta de distancia de seguridad, no adaptación a las circunstancias del tráfico, etc.). No uses fórmulas genéricas como 'no circula con la diligencia debida' o 'conducción negligente'.\n"
-    "- Base la conclusión en daños, manifestaciones y configuración de la vía.\n"
-    "- Si existen infracciones administrativas derivadas (alcoholemia, drogas, documentación, señalización, maniobras), menciónalas en una frase independiente dentro de la conclusión.\n\n"
+    "- Fórmula de apertura OBLIGATORIA: 'Que a la vista de todo lo expuesto, recogidas las manifestaciones de las partes y teniendo en cuenta los factores concurrentes en el siniestro vial, es parecer de los agentes actuantes que el siniestro se produce...'\n"
+    "- Tras la apertura, describe con precisión técnica: la maniobra ejecutada, el tipo de colisión, los vehículos implicados con su referencia (A/B), y el punto de impacto si se puede determinar por los daños observados.\n"
+    "- Ejemplo de nivel técnico correcto: '...por una colisión del vehículo B durante la ejecución de una maniobra de estacionamiento, impactando en la parte trasera izquierda del vehículo A, que se encontraba correctamente estacionado en la vía.'\n"
+    "- REFORMULACIÓN TÉCNICA OBLIGATORIA: El campo 'Conclusión técnica' puede venir redactado de forma coloquial. Debes reformularlo siempre en terminología técnica policial. Ejemplos de reformulación: 'golpe al aparcar' → 'colisión durante la maniobra de estacionamiento'; 'le dio sin querer' → 'impacto fortuito durante la maniobra de estacionamiento'; 'se saltó el stop' → 'incumplimiento de la señal de detención obligatoria'.\n"
+    "- El punto de impacto debe incluirse si se puede determinar a partir de los daños observados (ej: 'parte trasera izquierda del vehículo A').\n"
+    "- Usa siempre 'es parecer de los agentes actuantes' para dejar claro que es una valoración técnica policial, no una afirmación absoluta.\n"
+    "- No uses fórmulas genéricas como 'no circula con la diligencia debida' o 'conducción negligente'.\n"
+    "- PROHIBICIÓN ABSOLUTA: Está terminantemente prohibido añadir frases del tipo 'sin que se aprecien otros factores', 'sin que influyan factores externos' o similares. La conclusión describe lo que ocurrió, no lo que no ocurrió.\n"
+    "- Basa la conclusión en los daños observados, las manifestaciones recogidas y la configuración de la vía.\n"
+    "- CRÍTICO: Si los datos no permiten determinar responsabilidad (ausencia de testigos, versiones contradictorias, sin pruebas objetivas), usa: 'no resulta posible determinar de manera concluyente la dinámica exacta del supuesto siniestro ni establecer responsabilidades directas sobre los daños manifestados.'\n"
+    "- Está PROHIBIDO atribuir responsabilidad cuando no hay datos suficientes que la acrediten.\n\n"
 
     "DENUNCIAS ADMINISTRATIVAS:\n"
-    "- Solo se mencionan si constan expresa y literalmente en los datos. Prohibido inferirlas o deducirlas de la dinámica, daños o circunstancias.\n"
-    "- Refleja el hecho infractor exactamente como aparece en los datos.\n"
+    "- REGLA ABSOLUTA: Solo mencionar denuncia administrativa si en los datos aparece textualmente la palabra 'denuncia' O 'sanción' con el artículo o hecho infractor concreto y específico.\n"
+    "- Si no aparece esa mención textual, el párrafo de denuncias NO existe. No escribirlo. Ni aunque parezca lógico deducirlo.\n"
+    "- PROHIBICIÓN CRÍTICA: Está terminantemente prohibido deducir o inferir el hecho infractor a partir de la dinámica del accidente, de las maniobras descritas o de cualquier otra circunstancia observada. El hecho infractor debe constar textualmente en los datos.\n"
+    "- Ejemplo de inferencia PROHIBIDA: si el vehículo B colisiona contra el A estacionado durante una maniobra, NO puedes concluir que existe denuncia por 'no mantener distancia de seguridad' ni por ninguna otra infracción, salvo que conste textualmente.\n"
+    "- PROHIBIDO SIEMPRE: formular denuncia por fuga o abandono del lugar del siniestro, a menos que los datos lo digan textualmente con esas palabras.\n"
+    "- El vehículo que 'abandona el lugar' en el formulario de Intelcops es un campo técnico de clasificación del siniestro, NO una denuncia. No confundirlos.\n"
+    "- Refleja el hecho infractor exactamente como aparece en los datos, sin parafrasear ni ampliar.\n"
     "- Estructura para 1 denuncia: 'Que por otro lado, como resultado de las actuaciones practicadas, se formula denuncia administrativa a [persona] por [hecho literal]'.\n"
     "- Estructura para varias: 'Que por otro lado, como resultado de las actuaciones practicadas, se formulan [número] denuncias administrativas a [personas] por [hechos]'.\n"
     "- Respeta el número exacto de denuncias indicado en los datos.\n"
-    "- Prohibido vincular la denuncia administrativa como causa del accidente si no existe relación directa.\n\n"
+    "- Si no constan denuncias en los datos, no menciones ninguna.\n\n"
 
     "ESTILO:\n"
     "- Lenguaje técnico-policial real. Evita expresiones coloquiales, fórmulas artificiales o repetitivas.\n"
-    "- No sobreexplicar.\n\n"
+    "- No sobreexplicar.\n"
+    "- PROHIBICIÓN ABSOLUTA: Está terminantemente prohibido mencionar 'Parte Amistoso' o 'Cumplimentación de Parte Amistoso' en el informe. El Parte Amistoso es un documento que cumplimentan los conductores entre sí; no es una actuación policial y nunca debe aparecer en un informe técnico de accidente.\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
     + "\n\n"
@@ -844,9 +942,9 @@ PROMPT_ATESTADO_INSPECCION = (
 
     "TIEMPO VERBAL (OBLIGATORIO Y CRÍTICO):\n"
     "- Toda la inspección ocular debe redactarse en tiempo presente narrativo policial.\n"
-    "- Está prohibido utilizar el pasado en cualquier forma verbal.\n"
-    "- Ejemplos correctos: 'se observa', 'se constata', 'se localiza', 'se aprecia'.\n"
-    "- Ejemplos incorrectos: 'se observó', 'se constató', 'se localizó'.\n\n"
+    "- Está PROHIBIDO el uso de cualquier forma de pasado: perfecto simple ('se observó'), perfecto compuesto ('se han observado', 'no se han encontrado') e imperfecto.\n"
+    "- Ejemplos correctos: 'se observa', 'se constata', 'se localiza', 'se aprecia', 'no se observan', 'no se localizan'.\n"
+    "- Ejemplos incorrectos (prohibidos): 'se observó', 'se ha observado', 'no se han observado', 'se localizó'.\n\n"
 
     "FINALIDAD:\n"
     "- Describir exclusivamente lo que los agentes ven, observan y constatan físicamente en el lugar.\n"
@@ -1569,6 +1667,7 @@ def pagina_informe_municipal(api_key: str):
 
             with st.spinner("Generando informe..."):
                 texto = generar_texto_con_ia(api_key, prompt_final, bloque)
+            guardar_log_generacion("informe_municipal", datos, bloque, texto)
 
             st.session_state["resultado_municipal"] = texto
             st.session_state["datos_municipal"] = datos
@@ -1923,6 +2022,8 @@ VERSIONES:
 ACTUACIONES:
 - Si se menciona actuación policial (fotos, llamadas, gestiones, personación, comprobaciones, etc.), inclúyelo en el campo correspondiente.
 - No inventar actuaciones.
+- CRÍTICO: El campo 'Tipo de intervención' de Intelcops (Cumplimentación de Parte Amistoso / Parte/Informe a Prevención / Atestado...) es una lista de opciones administrativas del formulario, NO son actuaciones policiales realizadas. No extraigas nada de ese campo para rellenar 'Actuaciones realizadas'.
+- 'Cumplimentación de Parte Amistoso' NUNCA es una actuación policial. El Parte Amistoso lo cumplimentan los conductores civiles, no los agentes. No lo incluyas nunca en ningún campo.
 
 ESTILO:
 - Resume el texto en lenguaje claro y útil para redacción policial.
@@ -2166,6 +2267,7 @@ def bloque_generacion_directa(
 
         with st.spinner("Generando documento..."):
             texto = generar_texto_con_ia(api_key, prompt_final, bloque)
+        guardar_log_generacion(prefijo_guardado, {"Datos de Intelcops": contenido}, bloque, texto)
 
         st.session_state[resultado_key] = texto
         st.session_state[datos_key] = {
@@ -2232,6 +2334,9 @@ def bloque_generacion_directa_atestado(api_key: str, key_prefix: str):
                 + "\n\n===== INSPECCIÓN OCULAR =====\n\n"
                 + inspeccion
             )
+        datos_ic = {"Datos de Intelcops": contenido}
+        guardar_log_generacion("atestado_exposicion", datos_ic, bloque, exposicion)
+        guardar_log_generacion("atestado_inspeccion", datos_ic, bloque, inspeccion)
 
         st.session_state["resultado_atestado"] = documento
         st.session_state["datos_atestado"] = {
@@ -2312,6 +2417,7 @@ def generar_modulo_simple(
             )
             with st.spinner(spinner_texto):
                 texto = generar_texto_con_ia(api_key, prompt_final, bloque)
+            guardar_log_generacion(prefijo_guardado, datos, bloque, texto)
 
             st.session_state[resultado_key] = texto
             st.session_state[datos_key] = datos
@@ -2396,6 +2502,8 @@ def pagina_atestado(api_key: str):
             with st.spinner("Generando exposición e inspección ocular..."):
                 exposicion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_EXPOSICION, bloque)
                 inspeccion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_INSPECCION, bloque)
+            guardar_log_generacion("atestado_exposicion", datos, bloque, exposicion)
+            guardar_log_generacion("atestado_inspeccion", datos, bloque, inspeccion)
 
             nº_atestado = datos.get("Nº de atestado", "").strip()
             municipio = datos.get("Municipio / Jefatura", "").strip()
