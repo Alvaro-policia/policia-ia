@@ -76,6 +76,78 @@ def guardar_txt_con_nombre(documento: str, nombre: str) -> str:
     return ruta
 
 
+PREFIJO_A_CARPETA = {
+    "accidente": "accidentes",
+    "atestado_completo": "atestados",
+    "informe_municipal": "informes_municipales",
+    "parte_servicio": "partes_servicio",
+    "anomalia": "anomalias",
+    "informe_juzgado": "informes_juzgado",
+    "denuncia_administrativa": "denuncias_administrativas",
+}
+
+PREFIJO_A_TIPO_DOC = {
+    "accidente": "Informe técnico de accidente",
+    "atestado_completo": "Atestado completo",
+    "informe_municipal": "Informe municipal",
+    "parte_servicio": "Parte de servicio",
+    "anomalia": "Anomalía",
+    "informe_juzgado": "Informe personas",
+    "denuncia_administrativa": "Denuncia administrativa",
+}
+
+
+def guardar_ejemplo_ia(texto: str, prefijo: str) -> str:
+    carpeta_modulo = PREFIJO_A_CARPETA.get(prefijo, prefijo)
+    ruta_carpeta = os.path.join("conocimiento_policial", carpeta_modulo, "ejemplos_ia")
+    asegurar_carpeta(ruta_carpeta)
+    ahora = datetime.now()
+    fecha = ahora.strftime("%Y-%m-%d")
+    hora_nombre = ahora.strftime("%H-%M")
+    hora_display = ahora.strftime("%H:%M")
+    tipo_doc = PREFIJO_A_TIPO_DOC.get(prefijo, prefijo)
+    nombre_archivo = f"{fecha}_{hora_nombre}_{carpeta_modulo}_ia.md"
+    ruta = os.path.join(ruta_carpeta, nombre_archivo)
+    cabecera = (
+        f"# EJEMPLO IA\n\n"
+        f"Módulo: {tipo_doc}\n"
+        f"Fecha: {fecha}\n"
+        f"Hora: {hora_display}\n"
+        f"Generado por: GPT-4o-mini\n"
+        f"Aplicación: Policía IA\n\n"
+        f"---\n\n"
+    )
+    with open(ruta, "w", encoding="utf-8") as f:
+        f.write(cabecera + texto)
+    return ruta
+
+
+def anonimizar_texto(texto: str) -> str:
+    # DNIs completos (8 dígitos + letra); los ya anonimizados (***XXXX**) no hacen match
+    texto = re.sub(r'\b\d{8}[A-Za-z]\b', '***XXXX**', texto)
+    # Teléfonos de 9 dígitos empezando por 6 o 7
+    texto = re.sub(r'\b[67]\d{8}\b', '6XXXXXXXX', texto)
+    # Matrículas actuales: NNNNLLL
+    texto = re.sub(r'\b\d{4}[A-Z]{3}\b', 'XXXX000', texto)
+    # Matrículas antiguas: LNNNNLL
+    texto = re.sub(r'\b[A-Z]\d{4}[A-Z]{2}\b', 'XXXX000', texto)
+    # NIPs de 6 dígitos tras "NIP"
+    texto = re.sub(r'\bNIP\s+\d{6}\b', 'NIP XXXXXX', texto)
+    # Nombres precedidos de Dña. (primero, más específico)
+    texto = re.sub(
+        r'Dña\.\s+[A-ZÁÉÍÓÚÑ][A-Za-záéíóúñÁÉÍÓÚÑ]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-záéíóúñÁÉÍÓÚÑ]+){0,3}',
+        'Dña. [NOMBRE]',
+        texto,
+    )
+    # Nombres precedidos de D.
+    texto = re.sub(
+        r'\bD\.\s+[A-ZÁÉÍÓÚÑ][A-Za-záéíóúñÁÉÍÓÚÑ]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-záéíóúñÁÉÍÓÚÑ]+){0,3}',
+        'D. [NOMBRE]',
+        texto,
+    )
+    return texto
+
+
 def limpiar_espacios(texto: str) -> str:
     return " ".join((texto or "").split())
 
@@ -377,11 +449,18 @@ def get_client(api_key: str) -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
-def generar_texto_con_ia(api_key: str, prompt_sistema: str, datos_usuario: str) -> str:
+def generar_texto_con_ia(
+    api_key: str,
+    prompt_sistema: str,
+    datos_usuario: str,
+    bloque_fidelidad: str | None = "",
+) -> str:
     client = get_client(api_key)
 
-    # Añadimos bloque común de fidelidad y extensión a TODOS los prompts
-    prompt_final = prompt_sistema + "\n\n" + BLOQUE_FIDELIDAD_Y_EXTENSION
+    if bloque_fidelidad is None:
+        prompt_final = prompt_sistema
+    else:
+        prompt_final = prompt_sistema + "\n\n" + (bloque_fidelidad or BLOQUE_FIDELIDAD_Y_EXTENSION)
 
     respuesta = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -420,10 +499,24 @@ BLOQUE_FIDELIDAD_Y_EXTENSION = (
     "- El mayor desarrollo debe lograrse explicando mejor los datos existentes, no inventando hechos nuevos.\n\n"
 )
 
+BLOQUE_FIDELIDAD_ATESTADO_EXPOSICION = (
+    "FIDELIDAD ESPECÍFICA PARA EXPOSICIÓN DE HECHOS DE ATESTADO:\n"
+    "- Debes respetar los datos de INTELCOPS y las pinceladas del agente, pero no debes copiar literalmente las actas.\n"
+    "- Si la comparecencia o declaración principal del denunciante/perjudicado contiene el núcleo de los hechos, debes desarrollar ese relato en la exposición de hechos con una redacción policial nueva, equivalente en contenido, pero no literal.\n"
+    "- Si existen actas secundarias de testigos, denunciantes adicionales o personas complementarias, normalmente se dejan como diligencias adjuntas y se resumen de forma operativa.\n"
+    "- Está prohibido copiar párrafos enteros de una declaración con la misma redacción; debes reformular, ordenar y dar estilo de exposición policial.\n"
+    "- Las respuestas de interrogatorio posteriores a 'PREGUNTADO/PREGUNTADA' pueden trasladarse si completan el relato principal, identifican pruebas, documentos, archivos, testigos o gestiones, o explican un extremo relevante de los hechos.\n"
+    "- No traslades detalles claramente accesorios del interrogatorio si no aportan contexto, prueba o relevancia al relato policial.\n"
+    "- Debes priorizar la secuencia de actuaciones policiales: entrada por registro, llamadas, citaciones, comparecencias, tomas de declaración, recepción de archivos, remisiones, anexos, comprobaciones y traslado final, solo si constan.\n"
+    "- El texto debe ser suficientemente completo en actuaciones y diligencias, y debe desarrollar el relato fáctico principal cuando sea necesario para entender el atestado.\n"
+    "- Los campos 'Inicio' y 'Fin' dentro de un acta son metadatos de esa acta, no la finalización del atestado completo.\n"
+    "- No inventes gestiones, anexos, vídeos, correos, antecedentes ni cierre si no constan en los datos facilitados.\n\n"
+)
+
 BLOQUE_CONTEXTO_JEFATURA = (
     "CONTEXTO DE ACTUACIÓN:\n"
     "- Debes atender a los campos 'Origen de la actuación' e 'Intervención presencial en el lugar'.\n"
-    "- El origen de la actuación puede ser comparecencia en jefatura, aviso telefónico, aviso en la calle, actuación de oficio u orden jerárquica.\n"
+    "- El origen de la actuación puede ser comparecencia en jefatura, registro electrónico del Concello, aviso telefónico, aviso por WhatsApp, aviso en la calle, actuación de oficio u orden jerárquica.\n"
     "- Debes identificar correctamente el tipo de origen y adaptar la redacción al mismo sin mezclar escenarios.\n"
     "- Aunque la actuación se inicie por comparecencia en jefatura, puede existir después intervención presencial en vía pública.\n"
     "- Debes reflejar correctamente ambas fases si constan: inicio en dependencias y posterior intervención policial en el lugar.\n"
@@ -472,6 +565,7 @@ BLOQUE_ORDEN_JERARQUICA = (
 
 OPCIONES_ORIGEN = [
     "Comparecencia en jefatura",
+    "Registro Electrónico del Concello",
     "Aviso telefónico",
     "Aviso por WhatsApp al teléfono oficial",
     "Aviso en la calle",
@@ -479,13 +573,13 @@ OPCIONES_ORIGEN = [
     "Orden jerárquica",
 ]
 
-PROMPT_INTERCOPS_PREFIX = (
-    "FORMATO DE ENTRADA — DATOS DE INTERCOPS:\n"
-    "Los datos de entrada provienen de Intelcops, el sistema de gestión policial. "
+PROMPT_INTELCOPS_PREFIX = (
+    "FORMATO DE ENTRADA — DATOS DE INTELCOPS:\n"
+    "Los datos de entrada provienen de INTELCOPS, el sistema de gestión policial. "
     "El usuario ha pegado el contenido tal cual: puede incluir campos estructurados, datos de personas, "
     "datos de infracción y actas de manifestación, todo en un mismo bloque de texto.\n\n"
 
-    "EXTRACCIÓN DE DATOS DESDE INTERCOPS:\n"
+    "EXTRACCIÓN DE DATOS DESDE INTELCOPS:\n"
     "- 'Fecha infracción' y la hora que acompañe → fecha y hora del hecho.\n"
     "- 'Calle - Lugar', 'Nº', 'Barrio/Distrito/Localidad', 'Municipio' → lugar exacto del hecho.\n"
     "- Sección 'Ficha persona/entidad' → datos del denunciado o implicado (nombre, DNI, domicilio, teléfono).\n"
@@ -493,15 +587,27 @@ PROMPT_INTERCOPS_PREFIX = (
     "- Si hay un bloque 'Descripción de los hechos' ya redactado → úsalo solo como referencia contextual. "
     "Genera texto nuevo y mejorado; no lo copies literalmente.\n\n"
 
+    "LECTURA CORRECTA DE FICHAS, LISTADOS Y ACTAS EN INTELCOPS:\n"
+    "- La lista general 'Testigos, denunciantes, perjudicados y peritos' solo enumera personas relacionadas; NO significa por sí sola que todas hayan comparecido ni declarado.\n"
+    "- Para atribuir una comparecencia, declaración o denuncia, usa la persona de la 'Ficha persona/entidad' inmediatamente asociada al bloque 'Acta de denuncia / Manifestación / Declaración testifical'.\n"
+    "- La fecha/hora de 'Inicio' de un acta pertenece a la persona cuya ficha precede a ese acta, no a cualquier otra persona citada en el listado general.\n"
+    "- Está prohibido decir que una persona se persona o declara si solo aparece en el listado general y no consta acta, ficha o diligencia asociada a ella.\n"
+    "- Si una persona figura como testigo en el listado pero no consta su acta, no le atribuyas comparecencia, hora ni manifestación.\n"
+    "- 'Acta de identificación', 'Condición testifical', 'Fecha identificación' o 'Lugar identificación' NO equivalen a declaración, denuncia ni manifestación. Solo acreditan que la persona queda identificada.\n"
+    "- Las etiquetas sueltas 'Declaración / denuncia', 'Citación Sede Policial' o 'Citación Juicio Rápido' dentro de una ficha de persona son opciones/menús de INTELCOPS; NO son actas practicadas por sí mismas.\n"
+    "- Después de una ficha, solo existe declaración real si aparece un bloque desarrollado con 'Acta de denuncia / Manifestación / Declaración testifical', seguido de 'Inicio', texto bajo 'Declaración' y 'Fin'.\n"
+    "- Nunca escribas que una persona tiene 'declaración adjunta' si tras su ficha no aparece un bloque real de acta con 'Acta de denuncia / Manifestación / Declaración testifical', 'Inicio', 'Declaración' y 'Fin'.\n"
+    "- Si solo consta identificación de una persona relacionada, puedes indicar que queda identificada, pero no que se persona, declara, denuncia o presta manifestación.\n\n"
+
     "IDENTIFICACIÓN DE NIPs (CRÍTICO):\n"
     "- Los NIPs que aparecen en campos como 'Agentes actuantes', 'Patrulla', 'Intervinientes' o en la Minuta policial → son los AGENTES ACTUANTES. Úsalos en la cabecera y el cuerpo.\n"
     "- Los NIPs que aparecen en campos como 'Supervisor', 'Jefe de turno', 'Validador', 'Firmante', 'Visto bueno' o similar → son NIPs de gestión administrativa. NO los menciones bajo ningún concepto.\n"
-    "- El supervisor o jefe que valida el parte en Intelcops no es un agente actuante y no debe aparecer en el documento.\n\n"
+    "- El supervisor o jefe que valida el parte en INTELCOPS no es un agente actuante y no debe aparecer en el documento.\n\n"
 
     "NOMBRES DE AGENTES (PROHIBICIÓN ABSOLUTA):\n"
     "- Está TERMINANTEMENTE PROHIBIDO incluir el nombre de cualquier agente en el documento generado.\n"
     "- Los agentes se identifican EXCLUSIVAMENTE por su NIP. Nunca por su nombre ni apellidos.\n"
-    "- Intelcops muestra los agentes en formato 'NIP | APELLIDO (Nombre Apellido)'. Solo debes usar el número NIP.\n"
+    "- INTELCOPS muestra los agentes en formato 'NIP | APELLIDO (Nombre Apellido)'. Solo debes usar el número NIP.\n"
     "- Ejemplo correcto: 'los agentes con NIP 211024 y NIP 211107'.\n"
     "- Ejemplo PROHIBIDO: 'el agente Estela', 'A211024 Estela', 'Estela Esperón Lamas', 'A211107 Graña'.\n\n"
 
@@ -512,24 +618,30 @@ PROMPT_INTERCOPS_PREFIX = (
     "- Testigo: persona que presenció los hechos, total o parcialmente.\n"
     "- Implicado/a: persona a quien se atribuyen los hechos.\n"
     "- Integra cada manifestación de forma diferenciada, indicando la calidad de quien la realiza.\n"
-    "- Usa fórmulas como:\n"
+    "- ATENCIÓN: si el prompt específico del documento ordena tratar las actas como adjuntas, esa instrucción prevalece sobre esta sección común.\n"
+    "- En ese caso, no debes copiar ni desarrollar el contenido completo de las declaraciones; debes limitarte a dejar constancia de la toma de declaración, denuncia o manifestación y de su incorporación como adjunta.\n"
+    "- Si el documento sí requiere desarrollar manifestaciones, usa fórmulas como:\n"
     "  'Que D./Dña. ... comparece en dependencias policiales en calidad de denunciante y manifiesta que...'\n"
     "  'Que asimismo comparece D./Dña. ... en calidad de testigo, manifestando que...'\n"
     "  'Que igualmente comparece D./Dña. ... en calidad de implicada, manifestando que...'\n"
-    "- Si hay versiones contradictorias, refléjalas de forma objetiva y diferenciada. No tomes partido.\n"
-    "- Si una persona indica no haber visto algo directamente, refléjalo con exactitud.\n"
+    "- Si hay versiones contradictorias y el documento requiere desarrollar manifestaciones, refléjalas de forma objetiva y diferenciada. No tomes partido.\n"
+    "- Si una persona indica no haber visto algo directamente y el documento requiere desarrollar manifestaciones, refléjalo con exactitud.\n"
     "- Mantén el orden cronológico de las comparecencias si hay varias.\n\n"
 
     "DESCRIPCIÓN DEL AGENTE (si consta):\n"
     "- Si hay un bloque 'DESCRIPCIÓN DE LO OCURRIDO (aportada por el agente)', es el relato directo del agente actuante.\n"
     "- Tiene prioridad narrativa: úsalo como base del relato de hechos.\n"
-    "- Combínalo con los datos estructurados de Intelcops para generar un documento completo y coherente.\n"
+    "- Combínalo con los datos estructurados de INTELCOPS para generar un documento completo y coherente.\n"
     "- No lo copies literalmente; redáctalo con estilo policial formal.\n\n"
 
     "TRATAMIENTO DE PERSONAS EN MODO INTELCOPS:\n"
     "- En la primera mención de cada persona indica 'D.' o 'Dña.' + nombre completo + DNI si consta.\n"
     "- En menciones posteriores, solo 'D.' o 'Dña.' + nombre. No repitas DNI.\n"
     "- Si hay cita textual o frase entrecomillada en los datos, consérvala en el texto generado.\n\n"
+
+    "REGISTRO ELECTRÓNICO DEL CONCELLO EN INTELCOPS:\n"
+    "- Si en los datos aparece 'Registro Electrónico', 'Registro de entrada', 'Sede electrónica', 'entrada por registro', 'rexistro electrónico', 'registro del Concello' o fórmula equivalente, el origen de la actuación debe entenderse como 'Registro Electrónico del Concello'.\n"
+    "- En ese caso, el inicio del documento debe redactarse como entrada documental recibida por registro, no como llamada, aviso presencial, comparecencia física ni actuación de oficio.\n\n"
 )
 
 BLOQUE_AVISOS = (
@@ -546,6 +658,15 @@ BLOQUE_AVISOS = (
     "- Si en el campo 'Alertante o requirente' consta que se trata de un ciudadano no identificado o de un viandante, debes mantener coherencia con dicha circunstancia.\n"
     "- Está prohibido redactar como aviso telefónico un supuesto de aviso en la calle.\n"
     "- Está prohibido redactar como aviso en la calle un supuesto de aviso telefónico.\n\n"
+)
+
+BLOQUE_REGISTRO_ELECTRONICO = (
+    "REGISTRO ELECTRÓNICO DEL CONCELLO:\n"
+    "- Si el origen de la actuación es 'Registro Electrónico del Concello', debes iniciar la redacción como entrada documental recibida a través del Registro Electrónico del Concello.\n"
+    "- Debes usar fórmulas equivalentes a: 'Que con fecha [fecha] se recibe por parte de esta Jefatura de Policía Local escrito presentado por D./Dña. [nombre], con DNI [DNI], a través del Registro Electrónico del Concello de Poio, donde informa de...' o 'Que tiene entrada en esta Jefatura, a través del Registro Electrónico del Concello, escrito presentado por...'.\n"
+    "- Está prohibido redactar este origen como llamada telefónica, aviso en la calle, comparecencia física en Jefatura o actuación de oficio.\n"
+    "- Si consta fecha, hora, número de registro, referencia, expediente o persona firmante/remitente del escrito, debes integrarlo expresamente.\n"
+    "- Si después de la entrada por registro los agentes realizan llamadas, comprobaciones, citaciones, comparecencias o personaciones, deben narrarse como actuaciones posteriores en orden cronológico.\n\n"
 )
 
 TRATAMIENTO_PERSONAS_GENERAL = (
@@ -580,10 +701,11 @@ TRATAMIENTO DE PERSONAS:
 - Está prohibido omitir el tratamiento en cualquier mención.
 
 ORIGEN DE LA ACTUACIÓN:
-- El origen puede ser comparecencia en jefatura, aviso telefónico, aviso en la calle, actuación de oficio u orden jerárquica.
+- El origen puede ser comparecencia en jefatura, registro electrónico del Concello, aviso telefónico, aviso por WhatsApp, aviso en la calle, actuación de oficio u orden jerárquica.
 - Debes adaptar la redacción estrictamente al tipo de origen.
 - Está prohibido mezclar tipos de origen.
 - Si es comparecencia en jefatura, está prohibido indicar que se recibe aviso o llamada.
+- Si es registro electrónico del Concello, debe redactarse como entrada documental por registro, nunca como presencia física del ciudadano en Jefatura.
 - Si es aviso telefónico, debe redactarse como recepción de llamada.
 - Si es aviso en la calle, debe redactarse como requerimiento directo en vía pública.
 - Si es actuación de oficio, está prohibido indicar aviso o requerimiento.
@@ -615,6 +737,7 @@ PROMPT_DENUNCIA_ADMINISTRATIVA = (
     "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
     + BLOQUE_AVISOS +
+    BLOQUE_REGISTRO_ELECTRONICO +
     "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
     "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los actuantes agentes observan...'.\n"
     "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
@@ -668,7 +791,7 @@ PROMPT_INFORME_ACCIDENTE = (
 
     "PRIORIDAD NARRATIVA — DESCRIPCIÓN DEL AGENTE:\n"
     "- Si existe un bloque 'DESCRIPCIÓN DE LO OCURRIDO (aportada por el agente)', ese bloque es la FUENTE PRINCIPAL del orden cronológico. Úsalo como esqueleto narrativo del informe.\n"
-    "- Los datos de Intelcops son complementarios: sirven para obtener matrículas, NIPs, DNIs, horas exactas, datos de la vía. No para construir la cronología.\n"
+    "- Los datos de INTELCOPS son complementarios: sirven para obtener matrículas, NIPs, DNIs, horas exactas, datos de la vía. No para construir la cronología.\n"
     "- Si el agente describe una secuencia de eventos (llamada → instrucción de acudir → comparecencia → segunda llamada → personación), respeta esa secuencia exacta.\n\n"
 
     "CRONOLOGÍA (CRÍTICO):\n"
@@ -702,7 +825,7 @@ PROMPT_INFORME_ACCIDENTE = (
     "- Toda la redacción debe tener contenido técnico real.\n\n"
 
     "CAMPO 'CONTENIDO DEL AVISO/ORDEN' DE INTELCOPS (CRÍTICO):\n"
-    "- El campo 'Contenido del aviso/orden' de Intelcops describe el contenido de la llamada o aviso recibido. NO es una orden jerárquica.\n"
+    "- El campo 'Contenido del aviso/orden' de INTELCOPS describe el contenido de la llamada o aviso recibido. NO es una orden jerárquica.\n"
     "- La palabra 'orden' en ese campo es un genérico del formulario (aviso u orden). No implica que la actuación derive de una orden de un superior.\n"
     "- PROHIBIDO usar 'en cumplimiento de orden jerárquica' o 'por orden jerárquica' basándose en ese campo.\n"
     "- El origen de la actuación lo determina EXCLUSIVAMENTE el campo 'Origen de la actuación' del CONTEXTO DE ACTUACIÓN que aparece al final del bloque.\n"
@@ -749,7 +872,7 @@ PROMPT_INFORME_ACCIDENTE = (
 
    "PRUEBAS DE ALCOHOLEMIA Y DROGAS:\n"
     "- REGLA DE SILENCIO TOTAL: Si una prueba NO se realizó, NO se menciona en absoluto. Está PROHIBIDO escribir frases como 'no se realiza prueba de drogas', 'no se efectúa control de drogas' o cualquier variante. Silencio completo.\n"
-    "- PATRÓN INTELCOPS A IGNORAR: Intelcops muestra todas las opciones como lista ('Positiva / Negativa / Se niega / No realizada'). Si aparecen varias opciones sin selección clara, la prueba NO se realizó. NO mencionar.\n"
+    "- PATRÓN INTELCOPS A IGNORAR: INTELCOPS muestra todas las opciones como lista ('Positiva / Negativa / Se niega / No realizada'). Si aparecen varias opciones sin selección clara, la prueba NO se realizó. NO mencionar.\n"
     "- PROHIBICIÓN ABSOLUTA: Está terminantemente prohibido omitir el bloque de alcoholemia cuando en los datos consta un resultado concreto, aunque sea negativa.\n\n"
     "- PROTOCOLO OBLIGATORIO DE ALCOHOLEMIA — 3 párrafos 'Que' exactos, cuando hay resultado concreto:\n"
     "  Párrafo 1 — base legal y supuesto: 'Que al hallarse el conductor D./Dña. [nombre] en uno de los supuestos contemplados en el artículo 14 de la Ley de Seguridad Vial (aprobada por RDL 6/2015, de 30 de octubre), se da comienzo al protocolo establecido para la realización de las pruebas para la detección alcohólica mediante el aire espirado.'\n"
@@ -765,7 +888,7 @@ PROMPT_INFORME_ACCIDENTE = (
 
     "ASISTENCIA SANITARIA:\n"
     "- REGLA PRINCIPAL: Solo mencionar si hay datos concretos de asistencia efectiva (indicativo sanitario, hora de llegada, personas asistidas, traslado).\n"
-    "- PATRÓN INTELCOPS A IGNORAR: Intelcops muestra 'Intervención 061 - ambulancia: Sí / No' como lista de opciones. Si aparecen ambas opciones sin selección clara, o si los campos de lesividad indican 'Ileso, sin asistencia sanitaria', NO mencionar asistencia sanitaria.\n"
+    "- PATRÓN INTELCOPS A IGNORAR: INTELCOPS muestra 'Intervención 061 - ambulancia: Sí / No' como lista de opciones. Si aparecen ambas opciones sin selección clara, o si los campos de lesividad indican 'Ileso, sin asistencia sanitaria', NO mencionar asistencia sanitaria.\n"
     "- Si consta asistencia real: integrarlo en párrafo propio antes de la conclusión, indicando personas asistidas, indicativo, horas y destino si constan.\n"
     "- Está prohibido inventar lesiones, diagnósticos o destinos hospitalarios si no constan.\n\n"
 
@@ -819,7 +942,7 @@ PROMPT_INFORME_ACCIDENTE = (
     "- PROHIBICIÓN CRÍTICA: Está terminantemente prohibido deducir o inferir el hecho infractor a partir de la dinámica del accidente, de las maniobras descritas o de cualquier otra circunstancia observada. El hecho infractor debe constar textualmente en los datos.\n"
     "- Ejemplo de inferencia PROHIBIDA: si el vehículo B colisiona contra el A estacionado durante una maniobra, NO puedes concluir que existe denuncia por 'no mantener distancia de seguridad' ni por ninguna otra infracción, salvo que conste textualmente.\n"
     "- PROHIBIDO SIEMPRE: formular denuncia por fuga o abandono del lugar del siniestro, a menos que los datos lo digan textualmente con esas palabras.\n"
-    "- El vehículo que 'abandona el lugar' en el formulario de Intelcops es un campo técnico de clasificación del siniestro, NO una denuncia. No confundirlos.\n"
+    "- El vehículo que 'abandona el lugar' en el formulario de INTELCOPS es un campo técnico de clasificación del siniestro, NO una denuncia. No confundirlos.\n"
     "- Refleja el hecho infractor exactamente como aparece en los datos, sin parafrasear ni ampliar.\n"
     "- Estructura para 1 denuncia: 'Que por otro lado, como resultado de las actuaciones practicadas, se formula denuncia administrativa a [persona] por [hecho literal]'.\n"
     "- Estructura para varias: 'Que por otro lado, como resultado de las actuaciones practicadas, se formulan [número] denuncias administrativas a [personas] por [hechos]'.\n"
@@ -845,8 +968,9 @@ PROMPT_ATESTADO_EXPOSICION = (
     "Eres un asistente de redacción policial para Policía Local.\n\n"
 
     "Debes redactar una EXPOSICIÓN DE HECHOS para atestado, en castellano, con estilo policial real de Jefatura.\n"
-    "El texto debe ir íntegramente en prosa, sin listas, sin guiones y sin separaciones artificiales.\n"
-    "Todos los párrafos deben comenzar por 'Que'.\n"
+    "El texto debe ir principalmente en prosa, sin separaciones artificiales.\n"
+    "Todos los párrafos narrativos deben comenzar por 'Que'.\n"
+    "EXCEPCIÓN: si se relacionan varios atestados, partes de servicio, anexos o antecedentes documentales, puedes usar una lista sencilla con guiones para enumerarlos de forma clara.\n"
     "Debe poder copiarse directamente a un atestado real.\n\n"
 
     "FINALIDAD:\n"
@@ -857,6 +981,7 @@ PROMPT_ATESTADO_EXPOSICION = (
     "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
     + BLOQUE_AVISOS +
+    BLOQUE_REGISTRO_ELECTRONICO +
     "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
     "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes observan...'.\n"
     "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
@@ -868,13 +993,23 @@ PROMPT_ATESTADO_EXPOSICION = (
     "- Si no existe intervención presencial, no debes simular personación policial en el lugar.\n"
     "- Si existe intervención presencial, debes integrarla de forma cronológica y coherente.\n\n"
 
-    "CABECERA DE LA EXPOSICIÓN DE HECHOS (OBLIGATORIO):\n"
-    "- Si en los datos constan NIPs de agentes actuantes con sus categorías, debes iniciar el texto con esta cabecera ANTES del primer párrafo 'Que':\n"
+    "CABECERA DE LA EXPOSICIÓN DE HECHOS (CONDICIONAL):\n"
+    "- Si el origen NO es 'Registro Electrónico del Concello' y en los datos constan NIPs de agentes actuantes con sus categorías, debes iniciar el texto con esta cabecera ANTES del primer párrafo 'Que':\n"
     "  'Los Agentes que suscriben, con NIP [NIP1] y NIP [NIP2], con categoría de [categoría1] e [categoría2], respectivamente, hacen constar:'\n"
     "  Ejemplo: 'Los Agentes que suscriben, con NIP 211024 y NIP 211016, con categoría de Policía e Inspector Jefe, respectivamente, hacen constar:'\n"
+    "- REGLA DE MISMA CATEGORÍA: Si ambos agentes tienen exactamente la misma categoría, usa 'ambos con categoría de [categoría]' en lugar de repetir: 'Los Agentes que suscriben, con NIP [NIP1] y NIP [NIP2], ambos con categoría de Policía, hacen constar:'\n"
     "- Si solo hay un agente: 'El Agente que suscribe, con NIP [NIP], con categoría de [categoría], hace constar:'\n"
     "- Si no constan NIPs actuantes, omite la cabecera y empieza directamente con el primer párrafo 'Que'.\n"
-    "- IMPORTANTE: el NIP del Supervisor que aparece en la minuta de Intelcops NO es siempre el de instructor — usa los NIPs de la 'Minuta policial' o los que aparecen en el cuerpo del parte como agentes actuantes.\n\n"
+    "- EXCEPCIÓN CRÍTICA: si el origen es 'Registro Electrónico del Concello', está PROHIBIDO incluir cabecera inicial de agentes antes del primer párrafo. En ese caso el texto debe comenzar directamente con la entrada por registro ('Que con fecha... se recibe...'). Los NIPs de los agentes se integran después, cuando toman comparecencia, declaraciones o practican gestiones.\n"
+    "- IMPORTANTE: el NIP del Supervisor que aparece en la minuta de INTELCOPS NO es siempre el de instructor — usa los NIPs de la 'Minuta policial' o los que aparecen en el cuerpo del parte como agentes actuantes.\n\n"
+
+    "COMPARECENCIA EN JEFATURA — REGLAS ESPECÍFICAS:\n"
+    "- Cuando el origen es una comparecencia en jefatura, la apertura del primer párrafo 'Que' debe usar la fórmula: 'Que siendo las [hora] horas aproximadamente del [fecha], se persona en esta Jefatura quien se identifica plenamente mediante aportación de DNI número [DNI] como [nombre completo]...'\n"
+    "- La expresión 'quien se identifica plenamente mediante aportación de DNI número [DNI] como [nombre]' es OBLIGATORIA en la presentación del compareciente.\n"
+    "- En la apertura no uses la tipificación del expediente ni etiquetes los hechos como 'denuncia por coacciones', 'denuncia por amenazas', 'delito leve de...' o fórmulas similares. Debes redactar que la persona desea poner unos hechos en conocimiento policial, manteniendo el motivo de forma neutra si consta.\n"
+    "- Tras recoger la comparecencia, incluye: 'Que es por ello por lo que los agentes que suscriben toman la comparecencia adjunta, dando así inicio a las presentes diligencias.'\n"
+    "- PROHIBICIÓN ABSOLUTA: Cuando el origen es comparecencia en jefatura (el denunciante acude a la Jefatura), está TERMINANTEMENTE PROHIBIDO añadir un párrafo de 'se personan en el lugar en vehículo oficial rotulado'. Los agentes están en Jefatura, no se desplazan a ningún lugar en este momento.\n"
+    "- Solo debes describir un desplazamiento de los agentes si, después de atender la comparecencia, efectivamente salen de Jefatura a intervenir en algún lugar concreto, y eso consta en los datos.\n\n"
 
     "INICIO DEL RELATO:\n"
     "- El primer párrafo 'Que' debe comenzar de forma coherente con el origen de la actuación.\n"
@@ -885,19 +1020,91 @@ PROMPT_ATESTADO_EXPOSICION = (
     "CRONOLOGÍA (CRÍTICO):\n"
     "- Debes redactar los hechos en orden cronológico estricto siguiendo la secuencia real de los eventos.\n"
     "- Si hay una llamada telefónica el día X y una comparecencia en jefatura el día X+1, el relato debe empezar por la llamada del día X. La comparecencia posterior en jefatura para denunciar NO es el origen — es una diligencia posterior.\n"
-    "- Si el campo 'Modo de inicio' de Intelcops indica 'Llamada telefónica', el relato DEBE comenzar con la recepción de esa llamada, aunque después la persona fuera a jefatura.\n"
+    "- Si el campo 'Modo de inicio' de INTELCOPS indica 'Llamada telefónica', el relato DEBE comenzar con la recepción de esa llamada, aunque después la persona fuera a jefatura.\n"
     "- Si los hechos abarcan varios días, introduce cada cambio de día con claridad ('Que siendo las [hora] horas del día [fecha siguiente]...').\n"
     "- Debes distinguir y ordenar: (1) recepción del aviso, (2) desplazamiento al lugar, (3) actuación en el lugar, (4) gestiones desde jefatura, (5) comparecencias posteriores.\n\n"
+
+    "ATESTADOS CON VARIAS COMPARECENCIAS, TESTIGOS O GESTIONES:\n"
+    "- La exposición de hechos debe funcionar como una relación cronológica de actuaciones policiales y de hechos relevantes, no como una transcripción literal de las actas de denuncia, manifestación o declaración testifical.\n"
+    "- Debes distinguir entre DECLARACIÓN PRINCIPAL y ACTAS COMPLEMENTARIAS.\n"
+    "- DECLARACIÓN PRINCIPAL: cuando la declaración del denunciante/perjudicado sea la fuente principal de los hechos, sí debes desarrollar su contenido material en la exposición, siguiendo su cronología, pero con redacción nueva, técnica y no literal.\n"
+    "- En declaraciones principales por coacciones, amenazas, daños, conflictos de vivienda u otros hechos similares, la exposición puede parecerse bastante a la manifestación en contenido, porque ambas relatan los mismos hechos, pero debe cambiar la redacción, ordenar mejor los datos y evitar copiar frases completas.\n"
+    "- ACTAS COMPLEMENTARIAS: cuando se trate de testigos, denunciantes adicionales, perjudicados secundarios o declaraciones que solo completan el atestado, trátalas como documentos adjuntos: identifica a la persona, DNI/NIE si consta, fecha, hora, forma de contacto/citación/personación, agentes que toman la declaración si constan, y deja constancia de que la declaración, denuncia o manifestación queda adjunta a las diligencias.\n"
+    "- REGLA SOBRE ACTAS COMPLEMENTARIAS: cuando detectes un bloque 'Acta de denuncia / Manifestación / Declaración testifical', 'Declaración', 'Inicio' y 'Fin' que no sea la declaración principal, extrae metadatos de la diligencia y solo los extremos materiales imprescindibles. No desarrolles todo el relato interno de esa declaración.\n"
+    "- Cada acta complementaria de INTELCOPS debe quedar normalmente resumida en UN SOLO PÁRRAFO operativo, salvo que las pinceladas del agente pidan expresamente desarrollar algún extremo concreto.\n"
+    "- Fórmula preferente: 'Que siendo las [hora] horas del día [fecha] se persona en esta Jefatura [tratamiento + nombre], con DNI/NIE [documento], a quien los agentes con NIP [NIPs] toman declaración/denuncia/manifestación adjunta a las presentes diligencias.'\n"
+    "- Si la diligencia se realiza por teléfono, usa una fórmula equivalente a: 'Que el agente con NIP [NIP], siendo las [hora] horas del día [fecha], contacta telefónicamente con [persona], con DNI/NIE [documento], quedando su manifestación diligenciada en el presente atestado.'\n"
+    "- Está prohibido copiar literalmente el contenido completo de cualquier acta dentro de la exposición de hechos.\n"
+    "- Está prohibido reproducir el formato de acta dentro de la exposición: no uses bloques extensos de 'PREGUNTADO/PREGUNTADA' y 'MANIFIESTA'.\n"
+    "- Está prohibido encadenar detrás del párrafo de personación frases sucesivas como 'Que D./Dña. X manifiesta que...' para desarrollar el fondo de la declaración.\n"
+    "- Las respuestas situadas después de fórmulas 'PREGUNTADO/PREGUNTADA' o equivalentes pueden incorporarse si pertenecen a la declaración principal y completan el contexto de los hechos, explican antecedentes relevantes, identifican moradores, personas, pruebas o documentos, o justifican una diligencia posterior.\n"
+    "- Si esas respuestas pertenecen a actas complementarias, incorpóralas solo cuando contengan una actuación o prueba nueva que deba diligenciarse, como aportación de grabaciones, fotografías, capturas, correos, teléfonos de contacto, identificación de testigos o documentos adjuntos.\n"
+    "- No incorpores respuestas claramente accesorias del interrogatorio si no aportan contexto, prueba, identificación o relevancia al relato policial, salvo que las pinceladas del agente pidan expresamente incluirlas.\n"
+    "- En cualquier acta de INTELCOPS, el campo 'Inicio' es la hora válida de comparecencia o toma de manifestación. El campo 'Fin' es solo la hora interna de cierre de esa acta.\n"
+    "- No uses el campo 'Fin' para crear un párrafo autónomo de finalización de declaración salvo que las pinceladas del agente lo pidan expresamente. En la exposición de hechos normalmente debes indicar la comparecencia por su hora de 'Inicio' y que la declaración queda adjunta.\n"
+    "- Cuando desarrolles el contenido de una declaración principal, introduce primero la comparecencia con la hora de 'Inicio' si consta, y después resume o integra sus extremos materiales. No dejes la comparecencia para el final ni la sustituyas por la hora de 'Fin'.\n"
+    "- En este tipo de exposición, respetar la fidelidad al contenido NO significa transcribir literalmente las actas, sino reproducir fielmente los hechos y diligencias con redacción propia.\n"
+    "- Solo debes incluir el contenido material de una manifestación cuando sea imprescindible para explicar una actuación policial concreta, una citación, una remisión documental, un temor común, una comprobación posterior o una diligencia relevante; aun así, debe hacerse de forma breve y proporcional.\n"
+    "- Si existen varias personas contactadas, citadas o comparecientes, debes redactar cada contacto, citación, comparecencia, toma de declaración o diligencia asociada en párrafo propio y en orden cronológico.\n"
+    "- Debes integrar TODAS las personas que figuren en el bloque 'Testigos, denunciantes, perjudicados y peritos' o equivalente, siempre que tengan declaración, denuncia, contacto telefónico, citación, comparecencia o una diligencia material asociada. Está prohibido seleccionar solo algunas por brevedad.\n"
+    "- Una mera identificación administrativa de una persona relacionada solo debe incorporarse si resulta necesaria para entender el atestado; no obliga por sí sola a crear un párrafo de comparecencia o declaración.\n"
+    "- No confundas el listado general de intervinientes con las actas efectivamente practicadas: una persona del listado solo debe aparecer como compareciente o declarante si consta su ficha/acta/diligencia concreta.\n"
+    "- Si tras el listado general aparece una única ficha de persona y una única acta, atribuye esa acta únicamente a la persona de esa ficha, aunque en el listado general aparezcan otros testigos o perjudicados.\n"
+    "- Una 'Acta de identificación' o una 'Fecha identificación' de un testigo NO es una declaración testifical. En ese supuesto redacta, como máximo, que la persona queda identificada como testigo si resulta relevante, pero está prohibido escribir que se persona, declara o que su declaración queda adjunta.\n"
+    "- Si tras la ficha de una persona solo aparecen etiquetas sueltas como 'Declaración / denuncia', 'Citación Sede Policial', 'Citación Juicio Rápido', 'Condición testifical', 'Identificación', 'Fecha identificación' o 'Lugar identificación', eso NO es una declaración. No redactes comparecencia ni manifestación adjunta.\n"
+    "- Fórmula correcta para una persona solo identificada, si es imprescindible mencionarla: 'Que consta identificado D./Dña. [nombre], con DNI/NIE [documento], en calidad de [testigo/perjudicado si consta]'. Sin añadir que declara ni que se persona.\n"
+    "- Si una ficha de testigo no contiene bloque 'Acta de denuncia / Manifestación / Declaración testifical' con texto de declaración, no cierres el párrafo con fórmulas como 'quedando su declaración adjunta'.\n"
+    "- Antes de cerrar el relato, comprueba mentalmente que aparecen todas las actas de denuncia, manifestación o declaración testifical presentes en los datos de INTELCOPS.\n"
+    "- Está prohibido resumir una sucesión de llamadas y declaraciones con fórmulas genéricas como 'se contacta con varios vecinos' o 'se practican diversas gestiones' si constan nombres, teléfonos, fechas u horas concretas.\n"
+    "- Si una persona aporta una lista de testigos, teléfonos, vecinos, antiguos inquilinos u otras personas relacionadas, debes hacerlo constar y después narrar individualmente las gestiones realizadas con cada una, si constan.\n"
+    "- Si una persona es citada telefónicamente para acudir a Jefatura, primero debes narrar la llamada/citación y después la comparecencia, si se produce.\n"
+    "- Si se recibe documentación, vídeo, fotografías, capturas, archivos por WhatsApp o correo electrónico, debes reflejar el canal, fecha, hora, remitente y destino o incorporación a diligencias si constan.\n"
+    "- Si se trasladan archivos o diligencias a Guardia Civil, Juzgado u otra autoridad mediante correo o entrega, debes integrarlo como actuación concreta, con el correo, destino o momento si constan.\n"
+    "- Si se consultan bases de datos o antecedentes de actuaciones policiales previas, debes reflejar esa comprobación y relacionar los atestados, partes, anexos o referencias que consten, sin inventar ni alterar numeraciones.\n"
+    "- Si se comprueba la existencia de perfiles, publicaciones, vídeos o contenido en redes o plataformas como YouTube, debes describirlo objetivamente con el nombre del perfil, usuario, número de vídeos, visualizaciones o descripciones solo si constan.\n\n"
+
+    "CHECKLIST DE ACTUACIONES A BUSCAR EN INTELCOPS ANTES DE CERRAR:\n"
+    "- Revisa si constan contactos telefónicos, citaciones, personaciones, declaraciones por vía telefónica, recepción de vídeos o archivos, correos enviados, anexos, contenedor documental, entrega de objetos, actuaciones complementarias, antecedentes en base de datos, partes de servicio previos, atestados previos, respuestas a organismos, comprobaciones de perfiles de YouTube u otras plataformas, y traslado final de diligencias.\n"
+    "- Si cualquiera de esos extremos consta expresamente, debe aparecer como diligencia propia y cronológica.\n"
+    "- Si un extremo no consta expresamente, no lo inventes.\n"
+    "- No cierres la exposición tras la última declaración si después constan comprobaciones, anexos, remisiones, consultas, documentos o traslado final.\n\n"
 
     "INTERVENCIÓN POLICIAL:\n"
     "- Los agentes deben figurar como 'los agentes con NIP XXXX y NIP XXXX', integrados de forma natural en el relato.\n"
     "- Puedes incluir indicativos, unidades y servicios intervinientes si constan.\n"
     "- Debes integrar correctamente la participación de 061, Protección Civil, GES, Policía Nacional u otros servicios si aparecen.\n\n"
 
+    "ACTUACIÓN INICIAL EN EL LUGAR E INSPECCIÓN OCULAR:\n"
+    "- Si el atestado tiene llamada inicial, desplazamiento al lugar, entrevista con perjudicado/a y posterior comparecencia en Jefatura, la exposición debe narrar esa secuencia en ese orden.\n"
+    "- Tras la llamada, debes reflejar primero el desplazamiento/personación de los agentes en el lugar si consta, incluyendo indicativo policial solo si aparece expresamente.\n"
+    "- Después debes describir de forma breve la localización de los vehículos, objetos o lugar intervenido y la entrevista con la persona perjudicada o requirente.\n"
+    "- Los detalles técnicos materiales de la inspección ocular, como manchas, tapones, candados, cajas, cajones, posición exacta, aceras, maleza o ausencia de objetos, deben quedar preferentemente para la diligencia de inspección ocular.\n"
+    "- En la exposición de hechos solo debes integrar esos detalles técnicos de forma resumida si ayudan a explicar la actuación policial, el reportaje fotográfico o la decisión de instar a la denuncia.\n"
+    "- Si el usuario también genera inspección ocular, evita duplicar en la exposición todos los extremos descriptivos propios de dicha inspección.\n"
+    "- Si consta reportaje fotográfico o primera inspección ocular, incluye una frase operativa equivalente a: 'Que es por ello por lo que los agentes realizan reportaje fotográfico adjunto y una primera inspección ocular, instando a la persona perjudicada a acudir a dependencias a interponer denuncia.'\n\n"
+    "- No uses fórmulas de cierre como 'se procede a la confección de las presentes diligencias' inmediatamente después de la actuación inicial si después constan comparecencias, declaraciones, documentos o gestiones. Esa fórmula pertenece al cierre final del atestado.\n"
+
+
     "MANIFESTACIONES:\n"
-    "- Deben integrarse dentro del relato sin romper la fluidez.\n"
-    "- Puedes usar fórmulas como 'Que D. ... manifiesta que...', 'Que PREGUNTADO...', 'Que entrevistados con... manifiestan...'.\n"
+    "- Deben integrarse solo en la medida necesaria para explicar la actuación policial.\n"
+    "- Fórmula preferente para actas complementarias: 'Que siendo las [hora] horas del día [fecha] se persona en esta Jefatura D./Dña. [nombre], con DNI/NIE [documento], a quien se toma declaración/denuncia adjunta a las presentes diligencias.'\n"
+    "- Si se trata de la declaración principal del denunciante/perjudicado, puedes desarrollar los hechos en varios párrafos comenzando por 'Que', con redacción propia y sin copiar literalmente la manifestación.\n"
+    "- Evita fórmulas repetitivas como 'Que D./Dña. ... manifiesta que...' en todos los párrafos; alterna con fórmulas narrativas como 'Que el compareciente expone...', 'Que según refiere...', 'Que a continuación...', o redacta directamente el hecho cuando quede claro que procede de su manifestación.\n"
+    "- Puedes usar 'manifiesta' únicamente para extremos operativos breves, como que una persona no puede acudir a Jefatura, que desea dejar constancia por teléfono, que aporta o dispone de un vídeo, que solicita reserva sobre su participación, o que aporta una lista de testigos o teléfonos.\n"
+    "- Está prohibido convertir la exposición de hechos en una declaración testifical desarrollada.\n"
     "- No debes presentar como hecho constatado aquello que solo consta por manifestación de una persona.\n\n"
+
+    "PRIORIDAD NARRATIVA — PINCELADAS (CRÍTICO):\n"
+    "- El bloque 'DESCRIPCIÓN DE LO OCURRIDO (aportada por el agente)' (pinceladas) contiene lo que los propios agentes hicieron, observaron y constaron de primera mano, con independencia de lo que nadie declaró.\n"
+    "- OBLIGACIÓN ABSOLUTA: Todos los eventos descritos en las pinceladas deben aparecer en el relato final, en orden cronológico, aunque ocurran DESPUÉS de las declaraciones/manifestaciones.\n"
+    "- Si las pinceladas describen eventos posteriores a la última manifestación (observaciones del vehículo, llamadas telefónicas recibidas, comparecencias del día siguiente, etc.), esos eventos deben narrarse DESPUÉS de la última manifestación, siguiendo el orden cronológico real.\n"
+    "- El relato NO puede terminar tras la última manifestación si las pinceladas describen hechos posteriores.\n"
+    "- Los eventos de las pinceladas se narran como hechos constatados por los agentes: 'los agentes con NIP X observan que...', 'siendo las [hora] horas se recibe en el teléfono de dotación policial...', 'el día siguiente, [fecha], se persona en estas dependencias...'.\n"
+    "- Si en las pinceladas consta una llamada posterior con hora, número llamante e identidad manifestada por quien llama, debes redactar un párrafo independiente con esos datos. Está prohibido omitirlo o resumirlo de forma genérica.\n"
+    "- Si en las pinceladas consta una observación de patrulla sobre un vehículo, seguimiento, presencia en inmediaciones o cualquier vigilancia posterior, debes redactar un párrafo independiente con los datos del vehículo, lugar, sentido de marcha y actuación observada si constan.\n"
+    "- Si en las pinceladas consta que al día siguiente se persona otra persona en dependencias y se le recoge manifestación, debes redactar un párrafo independiente con la fecha, hora, identidad y finalidad de esa comparecencia si constan.\n"
+    "- Está prohibido sustituir varios eventos concretos de las pinceladas por una frase pobre del tipo 'se realizan gestiones posteriores' o 'se recoge manifestación al día siguiente'.\n"
+    "- Las manifestaciones son lo que la gente dijo; las pinceladas son lo que los agentes vieron y hicieron. Ambas partes son obligatorias en el relato.\n\n"
 
     "ESTILO:\n"
     "- Redacción limpia, continua, profesional y objetiva.\n"
@@ -906,9 +1113,29 @@ PROMPT_ATESTADO_EXPOSICION = (
     "- No inventar datos.\n"
     "- Si un dato no consta, se omite.\n\n"
 
+    "PARECER FINAL (PRUDENTE Y NO AUTOMÁTICO):\n"
+    "- Antes del cierre, el relato puede incluir un párrafo de valoración policial si los datos lo justifican.\n"
+    "- PROHIBICIÓN ABSOLUTA: El agente NO puede calificar jurídicamente los hechos ni determinar qué delito o falta constituyen. Eso es competencia exclusiva del Juez.\n"
+    "- Si procede reflejar posible relevancia penal, la fórmula correcta es genérica, sin especificar el tipo de delito:\n"
+    "  'Que es parecer de quien suscribe que los hechos puestos en conocimiento de esta Jefatura pudieran revestir caracteres de ilícito penal, lo que se pone en conocimiento a los efectos oportunos.'\n"
+    "- No uses esta fórmula de manera automática si el modelo de exposición o las pinceladas apuntan a una valoración factual más concreta y no jurídica.\n"
+    "- NUNCA escribas 'constitutivos de [tipo de delito concreto]'.\n\n"
+    "- No copies ni uses la tipificación penal de INTELCOPS en este párrafo. Están prohibidas fórmulas como 'delito leve de coacciones', 'delito de amenazas', 'estafa', 'hurto' o cualquier calificación jurídica concreta.\n\n"
+    "- En atestados con múltiples denunciantes o testigos, también puedes usar un parecer objetivo no jurídico si se desprende de las manifestaciones, por ejemplo que existe un sentimiento común de temor, malestar vecinal o deseo de asistencia/valoración facultativa. Esta valoración debe ser factual, prudente y sin calificación penal concreta.\n\n"
+
+    "TRASLADO A AUTORIDAD COMPETENTE:\n"
+    "- No añadas un párrafo genérico de traslado solo porque exista un destino administrativo en INTELCOPS.\n"
+    "- Si consta expresamente una remisión concreta vinculada a una declaración, archivo, vídeo, correo, entrega de diligencias o copia, intégrala en el momento cronológico correspondiente.\n"
+    "- Solo si los datos indican un traslado concreto con motivo de una declaración, archivo o diligencia determinada, puedes usar una fórmula equivalente a:\n"
+    "  'Que, con motivo de la declaración de [nombre del declarado/denunciado si procede], se da traslado de las presentes diligencias al [destino completo], con la finalidad de que adopten las medidas que consideren oportunas.'\n"
+    "- Si el traslado general de las diligencias se produce al final, debe integrarse en el cierre de finalización, no como párrafo duplicado.\n\n"
+
     "CIERRE:\n"
-    "- Debes finalizar la exposición de hechos con el párrafo: 'Que se procede a la confección de las presentes diligencias a los efectos oportunos.'\n"
-    "- A continuación, en línea aparte, añade la fórmula de cierre oficial: 'Y para que así conste, se extiende la presente que firman los que en ella han intervenido. CONSTE Y CERTIFICO'\n\n"
+    "- Debes cerrar la exposición con una diligencia de finalización, confección o traslado según los datos que consten.\n"
+    "- Los campos 'Inicio' y 'Fin' de un acta de denuncia, manifestación o declaración testifical pertenecen exclusivamente a esa acta concreta. Está prohibido usar el 'Fin' de una declaración como hora de finalización de todas las diligencias.\n"
+    "- Si consta hora de finalización y destino de traslado, usa una fórmula equivalente a: 'Que siendo las [hora] horas del día [fecha], se dan por finalizadas las presentes diligencias, dando traslado de las mismas a [destino] a los efectos oportunos.'\n"
+    "- Si no consta hora de finalización ni destino, usa: 'Que se procede a la confección de las presentes diligencias a los efectos oportunos.'\n"
+    "- A continuación, en línea aparte, añade una fórmula de cierre oficial equivalente a: 'Y para que así conste, se extiende la presente diligencia que firman los agentes que en su práctica han intervenido.'\n\n"
 
     + REGLAS_COMUNES_NO_INVENTAR
     + "\n\n"
@@ -925,18 +1152,34 @@ PROMPT_ATESTADO_INSPECCION = (
 
     "Debes redactar una DILIGENCIA DE INSPECCIÓN OCULAR para atestado, en castellano, con lenguaje técnico, objetivo, descriptivo y estrictamente policial.\n"
     "El texto debe ir íntegramente en prosa y todos los párrafos deben comenzar por 'Que'.\n\n"
+    "FORMATO DE SALIDA:\n"
+    "- No escribas títulos, encabezados Markdown, negritas ni rótulos como 'DILIGENCIA DE INSPECCIÓN OCULAR'.\n"
+    "- Salvo que proceda el encabezado formal regulado más abajo, el primer carácter de la respuesta debe ser la Q de 'Que'.\n\n"
 
     "PROHIBICIÓN ABSOLUTA — MANIFESTACIONES:\n"
     "- La inspección ocular describe ÚNICA Y EXCLUSIVAMENTE lo que los agentes perciben con sus propios sentidos en el lugar físico.\n"
     "- Está terminantemente PROHIBIDO incluir cualquier cosa que alguien dijo, manifestó, alegó, declaró o refirió.\n"
     "- No debes mencionar lo que dijo la denunciante, el testigo, el implicado ni ninguna otra persona.\n"
     "- Las manifestaciones van en la exposición de hechos, NUNCA en la inspección ocular.\n"
-    "- Cualquier frase que empiece por 'la denunciante manifiesta', 'la titular indica', 'según manifestación' o similar es un error grave y está prohibida.\n\n"
+    "- Cualquier frase que empiece por 'la denunciante manifiesta', 'la titular indica', 'según manifestación' o similar es un error grave y está prohibida.\n"
+    "- También están prohibidas fórmulas indirectas como 'según información recabada', 'según se informa', 'según refiere' o 'según indica'.\n"
+    "- Si el uso de un objeto solo consta por manifestación, no expliques ese uso en la inspección. Describe únicamente lo observado: por ejemplo, 'se localiza una caja abierta' y 'no se localiza candado en las inmediaciones'.\n\n"
+    "- Está prohibido incorporar a la inspección ocular datos procedentes de preguntas o respuestas de una declaración, aunque aparezcan en el bloque de INTELCOPS. Si aparece 'PREGUNTADA/PREGUNTADO' o 'MANIFIESTA', ese contenido no pertenece a la inspección salvo que las pinceladas del agente lo reproduzcan expresamente como observado por los agentes.\n"
+    "- La ausencia de cámaras de vigilancia solo puede ponerse si las pinceladas dicen que los agentes comprueban o no localizan cámaras. Si solo consta que la denunciante no conoce cámaras, omítelo.\n"
+    "- Daños en rueda, neumático o falta de tapacubos solo deben figurar en la inspección si las pinceladas del agente los describen como observados. Si solo constan en la manifestación de la perjudicada o como imagen aportada, omítelos de la inspección ocular.\n"
 
-    "ENCABEZADO (OBLIGATORIO):\n"
-    "- La inspección ocular debe comenzar con un encabezado antes del primer párrafo 'Que', con este formato:\n"
+
+    "ENCABEZADO (CONDICIONAL, SIN INVENTAR HORA):\n"
+    "- La inspección ocular solo debe comenzar con encabezado si consta una hora y fecha expresas de personación, llegada o práctica de la inspección ocular en el lugar físico.\n"
+    "- Si consta esa hora real de inspección/personación, usa este formato antes del primer párrafo 'Que':\n"
     "  'En [municipio], siendo las [hora de la inspección] horas del día [fecha de la inspección], los funcionarios del Cuerpo de la Policía Local con N.I.P. [NIP1], categoría de [categoría1], y N.I.P. [NIP2], con categoría de [categoría2], habilitados para la práctica de la presente como fuerza instructora, hacen constar el resultado obtenido en la inspección ocular que a continuación se especifica y detalla.'\n"
-    "- Para la hora y fecha del encabezado: usa la hora en que los agentes se personaron en el lugar de los hechos (no la hora de la llamada ni la de inicio del atestado). Si en los datos aparece una hora de llegada o personación de los agentes en el lugar, esa es la correcta.\n"
+    "- Para la hora y fecha del encabezado: usa únicamente la hora en que los agentes se personaron en el lugar de los hechos o practicaron la inspección ocular.\n"
+    "- Está prohibido usar como hora del encabezado la hora de llamada, aviso, hecho, inicio del expediente, identificación, comparecencia, inicio o fin de declaración.\n"
+    "- Si el bloque dice 'Que siendo las [hora] se recepciona llamada', esa hora pertenece al aviso y NUNCA puede ser hora del encabezado de inspección.\n"
+    "- Si solo consta la hora de llamada o aviso y no consta hora de personación, llegada o práctica de inspección, omite el encabezado formal y empieza directamente con un párrafo 'Que personados en...'. Es preferible omitir el encabezado a usar una hora incorrecta.\n"
+    "- Si aparecen NIPs, municipio y lugar, pero no aparece hora expresa de inspección/personación, omite igualmente el encabezado formal.\n"
+    "- Si omites el encabezado formal, tampoco puedes crear un primer párrafo equivalente con 'siendo las [hora del aviso]'. Empieza sin hora: 'Que personados en [lugar]...' o 'Que en [lugar] se observa...'.\n"
+    "- Si tienes dudas sobre si una hora corresponde al aviso o a la inspección, no uses esa hora en la inspección ocular.\n"
     "- Si solo hay un agente: adaptarlo en singular.\n"
     "- Si no constan NIPs, omitir el encabezado y empezar directamente con 'Que personados en...'.\n\n"
 
@@ -956,7 +1199,8 @@ PROMPT_ATESTADO_INSPECCION = (
 
     "ELEMENTOS DE INTERÉS:\n"
     "- Indicar si se localizan o no objetos relacionados con los hechos (candados, tapones, etc.).\n"
-    "- Indicar existencia o inexistencia de cámaras de vigilancia si consta.\n\n"
+    "- Indicar existencia o inexistencia de cámaras de vigilancia solo si consta como observación o comprobación realizada por los agentes. Si solo lo dice una persona en su manifestación, omítelo en la inspección ocular.\n"
+    "- Si un dato material aparece mezclado con una manifestación, conserva únicamente lo observable por los agentes. Ejemplo: puedes decir que no se localiza un candado, pero no que alguien utiliza ese candado para cerrar el cajón salvo que los agentes lo comprueben directamente.\n\n"
 
     "REPORTAJE FOTOGRÁFICO:\n"
     "- Si se indica, incluir expresamente que se realiza reportaje fotográfico, quedando incorporado a las diligencias.\n\n"
@@ -964,6 +1208,7 @@ PROMPT_ATESTADO_INSPECCION = (
     "ESTILO:\n"
     "- Redacción limpia, objetiva, técnica y sin frases superfluas.\n"
     "- No valorar ni interpretar hechos. Solo describir lo observado.\n"
+    "- No uses calificaciones como 'robo', 'hechos denunciados', 'autor', 'sustraído' o 'vehículo objeto de robo' en la inspección ocular. Usa fórmulas descriptivas neutras: 'hechos que motivan la presente', 'vehículo inspeccionado', 'elementos no localizados'.\n"
     "- No inventar datos. Si algo no consta, omitirlo.\n\n"
 
     "CIERRE:\n"
@@ -992,6 +1237,7 @@ PROMPT_INFORME_MUNICIPAL = (
     "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes redactar el inicio como comparecencia en dependencias policiales.\n"
     + BLOQUE_AVISOS +
+    BLOQUE_REGISTRO_ELECTRONICO +
     "- Si el origen es 'Actuación de oficio', no debes indicar en ningún caso que se recibe llamada, aviso o requerimiento.\n"
     "- Si el origen es 'Orden jerárquica', debes iniciar la redacción indicando que la actuación se realiza por orden jerárquica.\n"
     "- Debes usar fórmulas equivalentes a: 'Que por orden jerárquica...' o 'Que en cumplimiento de orden jerárquica...'.\n"
@@ -1087,7 +1333,7 @@ PROMPT_PARTE_SERVICIO = (
 
     "  REGLA CRÍTICA SOBRE NIPs:\n"
     "  - Los NIPs de la cabecera deben ser los de los AGENTES ACTUANTES en el servicio.\n"
-    "  - En datos de Intelcops pueden aparecer NIPs de jefes, supervisores, validadores o firmantes del sistema — NO son los agentes actuantes.\n"
+    "  - En datos de INTELCOPS pueden aparecer NIPs de jefes, supervisores, validadores o firmantes del sistema — NO son los agentes actuantes.\n"
     "  - Si en los datos aparece un NIP en un campo como 'Agente supervisor', 'Jefe de turno', 'Validador', 'Firmante' o similar, NO lo uses en la cabecera ni en el cuerpo como agente actuante.\n"
     "  - Solo usa los NIPs que figuren expresamente como agentes que intervinieron en el servicio.\n"
     "  Si 'Nº de expediente' consta, añádelo como referencia antes o junto a la cabecera.\n\n"
@@ -1102,6 +1348,7 @@ PROMPT_PARTE_SERVICIO = (
     "- Si hay varios orígenes (ej: WhatsApp + llamada posterior), narrarlos cronológicamente.\n"
     "- Si el origen es 'Comparecencia en jefatura': iniciar el relato como comparecencia en dependencias policiales.\n"
     + BLOQUE_AVISOS +
+    BLOQUE_REGISTRO_ELECTRONICO +
     "- Si el origen es 'Actuación de oficio': prohibido mencionar llamada, aviso o requerimiento.\n"
     "  Usar: 'Que realizando labores propias del cargo...' o 'Que los agentes actuantes observan...'.\n"
     "- Si el origen es 'Orden jerárquica': indicar que la actuación se realiza por orden jerárquica.\n"
@@ -1149,6 +1396,7 @@ PROMPT_ANOMALIA = (
     "- Debes atender estrictamente al campo 'Origen de la actuación'.\n"
     "- Si el origen es 'Comparecencia en jefatura', debes iniciar el relato como comparecencia en dependencias policiales.\n"
     + BLOQUE_AVISOS +
+    BLOQUE_REGISTRO_ELECTRONICO +
     "- Si el origen es 'Actuación de oficio', está prohibido redactar que se recibe llamada, aviso o requerimiento.\n"
     "- En actuación de oficio debes usar fórmulas como 'Que realizando labores propias del cargo...' o 'Que los agentes actuantes observan...'.\n"
     "- Debes atender también al campo 'Intervención presencial en el lugar?'.\n"
@@ -1573,7 +1821,7 @@ def pagina_informe_municipal(api_key: str):
     key_prefix = "municipal"
     cabecera_modulo("Informe municipal", "🏛️")
 
-    tab_directo, tab_campos = st.tabs(["⚡ Desde Intelcops", "📝 Con campos"])
+    tab_directo, tab_campos = st.tabs(["⚡ Desde INTELCOPS", "📝 Con campos"])
 
     with tab_directo:
         bloque_generacion_directa(
@@ -1873,10 +2121,10 @@ def resetear_formulario(key_prefix: str, claves_resultado: list[str] | None = No
             or clave == f"intervencion_presencial_{key_prefix}"
             or clave == f"orden_autoridad_{key_prefix}"
             or clave == f"nombre_informe_municipal"
-            # Modo directo Intelcops
-            or clave.startswith(f"intercops_datos_{key_prefix}")
-            or clave.startswith(f"intercops_manifest_{key_prefix}")
-            or clave.startswith(f"intercops_pinceladas_{key_prefix}")
+            # Modo directo INTELCOPS
+            or clave.startswith(f"intelcops_datos_{key_prefix}")
+            or clave.startswith(f"intelcops_manifest_{key_prefix}")
+            or clave.startswith(f"intelcops_pinceladas_{key_prefix}")
             or clave.startswith(f"origen_actuacion_directo_{key_prefix}")
             or clave.startswith(f"intervencion_presencial_directo_{key_prefix}")
             or clave.startswith(f"orden_autoridad_directo_{key_prefix}")
@@ -1895,29 +2143,55 @@ def resetear_formulario(key_prefix: str, claves_resultado: list[str] | None = No
 
 
 def mostrar_resultado(texto: str, datos: dict, prefijo: str):
-    st.subheader("Resultado")
-    st.text_area("Documento generado", texto, height=450)
+    orig_key = f"_anon_orig_{prefijo}"
+    display_key = f"_anon_display_{prefijo}"
 
-    col1, col2, col3 = st.columns(3)
+    # Resetear si es una generación nueva (texto cambió)
+    if st.session_state.get(orig_key) != texto:
+        st.session_state[orig_key] = texto
+        st.session_state[display_key] = texto
+
+    texto_mostrado = st.session_state[display_key]
+    esta_anonimizado = texto_mostrado != texto
+
+    st.subheader("Resultado")
+    st.text_area("Documento generado", texto_mostrado, height=450)
+
+    anon_col, rest_col = st.columns(2)
+    with anon_col:
+        if st.button("🔒 Anonimizar", key=f"btn_anon_{prefijo}"):
+            st.session_state[display_key] = anonimizar_texto(texto)
+            st.rerun()
+    with rest_col:
+        if esta_anonimizado:
+            if st.button("↩ Restaurar original", key=f"btn_restaurar_{prefijo}"):
+                st.session_state[display_key] = texto
+                st.rerun()
+
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        boton_copiar_web(texto, prefijo)
+        boton_copiar_web(texto_mostrado, prefijo)
     with col2:
         st.download_button(
             "Descargar TXT",
-            data=texto.encode("utf-8"),
+            data=texto_mostrado.encode("utf-8"),
             file_name=f"{prefijo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
             mime="text/plain",
         )
     with col3:
         if st.button("Guardar TXT y JSON", key=f"guardar_{prefijo}"):
-            ruta_txt = guardar_txt(texto, prefijo)
+            ruta_txt = guardar_txt(texto_mostrado, prefijo)
             ruta_json = guardar_json(datos, prefijo)
             st.success(f"Guardado en: {ruta_txt} y {ruta_json}")
+    with col4:
+        if st.button("Guardar ejemplo IA (.md)", key=f"guardar_md_{prefijo}"):
+            ruta_md = guardar_ejemplo_ia(texto_mostrado, prefijo)
+            st.success("Ejemplo IA guardado correctamente")
 
     nombre = st.text_input("Guardar con nombre", key=f"nombre_{prefijo}")
     if st.button("Guardar TXT", key=f"guardar_nombre_{prefijo}"):
         if nombre.strip():
-            ruta = guardar_txt_con_nombre(texto, nombre.strip())
+            ruta = guardar_txt_con_nombre(texto_mostrado, nombre.strip())
             st.success(f"Guardado en: {ruta}")
         else:
             st.warning("Escribe un nombre válido.")
@@ -2022,7 +2296,7 @@ VERSIONES:
 ACTUACIONES:
 - Si se menciona actuación policial (fotos, llamadas, gestiones, personación, comprobaciones, etc.), inclúyelo en el campo correspondiente.
 - No inventar actuaciones.
-- CRÍTICO: El campo 'Tipo de intervención' de Intelcops (Cumplimentación de Parte Amistoso / Parte/Informe a Prevención / Atestado...) es una lista de opciones administrativas del formulario, NO son actuaciones policiales realizadas. No extraigas nada de ese campo para rellenar 'Actuaciones realizadas'.
+- CRÍTICO: El campo 'Tipo de intervención' de INTELCOPS (Cumplimentación de Parte Amistoso / Parte/Informe a Prevención / Atestado...) es una lista de opciones administrativas del formulario, NO son actuaciones policiales realizadas. No extraigas nada de ese campo para rellenar 'Actuaciones realizadas'.
 - 'Cumplimentación de Parte Amistoso' NUNCA es una actuación policial. El Parte Amistoso lo cumplimentan los conductores civiles, no los agentes. No lo incluyas nunca en ningún campo.
 
 ESTILO:
@@ -2115,14 +2389,32 @@ def bloque_texto_a_campos(api_key: str, key_prefix: str, tipo_documento: str, ca
             # st.rerun()
 
 # =========================================================
-# GENERACIÓN DIRECTA DESDE INTERCOPS
+# GENERACIÓN DIRECTA DESDE INTELCOPS
 # =========================================================
 
 def detectar_contexto_actuacion(api_key: str, texto: str) -> tuple[str, str]:
     """Devuelve (origen_actuacion, intervencion_presencial) detectados del texto."""
     client = get_client(api_key)
+    texto_lower = (texto or "").lower()
+    origen_forzado = ""
+    if any(
+        marca in texto_lower
+        for marca in [
+            "registro electrónico",
+            "registro electronico",
+            "registro de entrada",
+            "sede electrónica",
+            "sede electronica",
+            "entrada por registro",
+            "rexistro electrónico",
+            "rexistro electronico",
+            "registro del concello",
+        ]
+    ):
+        origen_forzado = "Registro Electrónico del Concello"
+
     prompt = (
-        "Lee el siguiente texto policial de Intelcops y determina dos cosas.\n\n"
+        "Lee el siguiente texto policial de INTELCOPS y determina dos cosas.\n\n"
 
         "1. ORIGEN DE LA ACTUACIÓN — REGLA CRÍTICA:\n"
         "El origen es el PRIMER evento cronológico que inició la actuación policial, no el primero que aparece en el texto.\n"
@@ -2132,17 +2424,24 @@ def detectar_contexto_actuacion(api_key: str, texto: str) -> tuple[str, str]:
         "  - La declarante/denunciante dice que 'contactó con la policía', 'llamó a la policía', 'avisó a la policía', 'se puso en contacto con la policía'.\n"
         "  - El texto menciona un número de teléfono como origen del aviso.\n"
         "Señales que indican COMPARECENCIA EN JEFATURA:\n"
-        "  - La persona fue a jefatura a denunciar SIN que hubiera llamada previa.\n"
+        "  - La persona fue a jefatura a denunciar SIN que hubiera llamada previa a la policía.\n"
         "  - El primer contacto policial fue en las dependencias.\n"
+        "  - ATENCIÓN: El campo 'Modo de inicio: Orden jerárquica' en el PAS/minuta indica cómo el agente fue asignado al servicio por su supervisor, NO cómo llegó el hecho a conocimiento policial. Si la persona acudió físicamente a jefatura sin llamar antes, el origen es 'Comparecencia en jefatura', no 'Orden jerárquica'.\n"
+        "Señales que indican REGISTRO ELECTRÓNICO DEL CONCELLO:\n"
+        "  - El texto menciona 'Registro Electrónico', 'Registro de entrada', 'Sede electrónica', 'entrada por registro', 'rexistro electrónico' o 'registro del Concello'.\n"
+        "  - El hecho llega mediante escrito, instancia, comunicación o documentación remitida por el Concello, no por presencia física de la persona en Jefatura.\n"
+        "  - Si el primer conocimiento policial es una entrada documental del Concello, el origen es 'Registro Electrónico del Concello'.\n"
         "Señales que indican ACTUACIÓN DE OFICIO:\n"
         "  - Los agentes detectaron el hecho ellos solos, sin aviso de nadie.\n"
         "  - No hay ningún ciudadano que alertara a la policía.\n"
         "IMPORTANTE: Si la persona avisó a la policía (aunque sea desde la calle o por teléfono) el origen NO es 'Actuación de oficio'.\n"
         "Si hay una llamada el día X y después comparecencia el día X+1, el origen es 'Aviso telefónico'.\n"
+        "Si hay una entrada por registro electrónico y después se cita o comparece una persona, el origen sigue siendo 'Registro Electrónico del Concello'.\n"
         "Si alguien paró a los agentes en la calle → 'Aviso en la calle'.\n"
         "Si hubo orden de un superior → 'Orden jerárquica'.\n\n"
         "Elige exactamente una de estas opciones:\n"
         "- Comparecencia en jefatura\n"
+        "- Registro Electrónico del Concello\n"
         "- Aviso telefónico\n"
         "- Aviso por WhatsApp al teléfono oficial\n"
         "- Aviso en la calle\n"
@@ -2158,28 +2457,35 @@ def detectar_contexto_actuacion(api_key: str, texto: str) -> tuple[str, str]:
         "PRESENCIAL: <Sí o No>\n\n"
         f"TEXTO:\n{texto[:6000]}"
     )
-    origen = "Actuación de oficio"
+    origen = origen_forzado or "Actuación de oficio"
     presencial = "No"
     try:
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=40,
+            max_tokens=60,
         )
         resultado = (resp.choices[0].message.content or "").strip()
         for linea in resultado.splitlines():
             if linea.startswith("ORIGEN:"):
                 valor = linea.replace("ORIGEN:", "").strip()
-                for opcion in OPCIONES_ORIGEN:
-                    if opcion in valor:
-                        origen = opcion
-                        break
+                valor_lower = valor.lower()
+                if "registro" in valor_lower and ("concello" in valor_lower or "electr" in valor_lower or "entrada" in valor_lower):
+                    origen = "Registro Electrónico del Concello"
+                    continue
+                if not origen_forzado:
+                    for opcion in OPCIONES_ORIGEN:
+                        if opcion in valor:
+                            origen = opcion
+                            break
             elif linea.startswith("PRESENCIAL:"):
                 valor = linea.replace("PRESENCIAL:", "").strip()
                 presencial = "Sí" if "sí" in valor.lower() or valor.lower() == "si" else "No"
     except Exception:
         pass
+    if origen_forzado:
+        origen = origen_forzado
     return origen, presencial
 
 
@@ -2189,18 +2495,32 @@ def _construir_contenido_directo(
     intervencion_presencial: str,
     orden_autoridad: str,
     pinceladas: str = "",
+    priorizar_pinceladas: bool = False,
 ) -> str:
     contexto = (
         f"Origen de la actuación: {origen_actuacion}\n"
         f"Intervención presencial en el lugar: {intervencion_presencial}\n"
     )
+    if origen_actuacion == "Registro Electrónico del Concello":
+        contexto += (
+            "Instrucción crítica: si se genera una exposición de hechos, debe empezar directamente "
+            "con la entrada por Registro Electrónico del Concello. No incluyas cabecera inicial de agentes antes "
+            "del primer párrafo 'Que'.\n"
+        )
     if origen_actuacion == "Orden jerárquica" and orden_autoridad.strip():
         contexto += f"Orden jerárquica (autoridad que la dicta): {orden_autoridad.strip()}\n"
 
     partes = []
+    if priorizar_pinceladas and pinceladas.strip():
+        partes.append(
+            "DESCRIPCIÓN DE LO OCURRIDO (aportada por el agente) — PRIORIDAD NARRATIVA ABSOLUTA:\n"
+            f"{pinceladas.strip()}\n\n"
+            "REGLA DE USO: cada llamada, observación, seguimiento, comparecencia posterior o gestión descrita en este bloque debe aparecer en el documento final en orden cronológico. "
+            "Si este bloque está redactado como exposición de hechos, úsalo como modelo preferente de estructura, extensión y nivel de detalle frente a las actas completas de INTELCOPS."
+        )
     if contenido.strip():
         partes.append(f"DATOS DE INTELCOPS:\n{contenido.strip()}")
-    if pinceladas.strip():
+    if pinceladas.strip() and not priorizar_pinceladas:
         partes.append(f"DESCRIPCIÓN DE LO OCURRIDO (aportada por el agente):\n{pinceladas.strip()}")
     partes.append(f"CONTEXTO DE ACTUACIÓN:\n{contexto}")
     return "\n\n".join(partes)
@@ -2215,17 +2535,17 @@ def bloque_generacion_directa(
     datos_key: str,
     prefijo_guardado: str,
 ):
-    st.caption("Pega los datos de Intelcops y añade un par de frases explicando qué pasó. La IA genera el documento completo.")
+    st.caption("Pega los datos de INTELCOPS y añade un par de frases explicando qué pasó. La IA genera el documento completo.")
 
     reset_version = get_reset_version(key_prefix)
-    clave_contenido = f"intercops_datos_{key_prefix}_{reset_version}"
-    clave_pinceladas = f"intercops_pinceladas_{key_prefix}_{reset_version}"
+    clave_contenido = f"intelcops_datos_{key_prefix}_{reset_version}"
+    clave_pinceladas = f"intelcops_pinceladas_{key_prefix}_{reset_version}"
 
     contenido = st.text_area(
-        "Datos de Intelcops",
+        "Datos de INTELCOPS",
         height=260,
         key=clave_contenido,
-        placeholder="Pega aquí el contenido copiado de Intelcops: datos del parte, manifestaciones, lo que tengas.",
+        placeholder="Pega aquí el contenido copiado de INTELCOPS: datos del parte, manifestaciones, lo que tengas.",
     )
 
     pinceladas = st.text_area(
@@ -2256,49 +2576,59 @@ def bloque_generacion_directa(
             return
 
         with st.spinner("Analizando texto..."):
-            origen_detectado, presencial_detectado = detectar_contexto_actuacion(api_key, contenido)
+            origen_detectado, presencial_detectado = detectar_contexto_actuacion(
+                api_key,
+                "\n\n".join(parte for parte in [pinceladas, contenido] if parte.strip()),
+            )
 
         st.info(f"Origen detectado: **{origen_detectado}** · Personación en el lugar: **{presencial_detectado}**")
 
         bloque = _construir_contenido_directo(
             contenido, origen_detectado, presencial_detectado, orden_autoridad, pinceladas,
         )
-        prompt_final = PROMPT_INTERCOPS_PREFIX + prompt_base
+        prompt_final = PROMPT_INTELCOPS_PREFIX + prompt_base
 
         with st.spinner("Generando documento..."):
             texto = generar_texto_con_ia(api_key, prompt_final, bloque)
-        guardar_log_generacion(prefijo_guardado, {"Datos de Intelcops": contenido}, bloque, texto)
+        guardar_log_generacion(prefijo_guardado, {"Datos de INTELCOPS": contenido}, bloque, texto)
 
         st.session_state[resultado_key] = texto
         st.session_state[datos_key] = {
-            "_modo": "directo_intercops",
-            "Datos de Intelcops": contenido,
+            "_modo": "directo_intelcops",
+            "Datos de INTELCOPS": contenido,
         }
 
 
 def bloque_generacion_directa_atestado(api_key: str, key_prefix: str):
-    st.caption("Pega aquí todos los datos de Intelcops (datos del atestado, manifestaciones, todo junto). La IA detecta el origen y genera exposición e inspección ocular.")
+    st.caption("Pega aquí todos los datos de INTELCOPS (datos del atestado, manifestaciones, todo junto). La IA detecta el origen y genera exposición e inspección ocular.")
 
     reset_version = get_reset_version(key_prefix)
-    clave_contenido = f"intercops_datos_{key_prefix}_{reset_version}"
-    clave_pinceladas = f"intercops_pinceladas_{key_prefix}_{reset_version}"
+    clave_contenido = f"intelcops_datos_{key_prefix}_{reset_version}"
+    clave_pinceladas = f"intelcops_pinceladas_{key_prefix}_{reset_version}"
 
     contenido = st.text_area(
-        "Datos de Intelcops",
+        "Datos de INTELCOPS",
         height=260,
         key=clave_contenido,
-        placeholder="Pega aquí el contenido copiado de Intelcops: datos del atestado, manifestaciones, lo que tengas.",
+        placeholder="Pega aquí el contenido copiado de INTELCOPS: datos del atestado, manifestaciones, lo que tengas.",
     )
 
     pinceladas = st.text_area(
-        "¿Qué pasó? (2-4 frases)",
-        height=100,
+        "Pinceladas o borrador del agente",
+        height=160,
         key=clave_pinceladas,
-        placeholder="Ej: Detención por robo en comercio. El detenido intentó salir sin pagar. Al ser interceptado se resistió verbalmente.",
+        placeholder="Añade aquí la secuencia real de actuaciones, llamadas, citaciones, comparecencias, anexos o un borrador de exposición si lo tienes.",
     )
 
     _, intervencion_presencial, orden_autoridad = selector_contexto_actuacion_general(
         f"directo_{key_prefix}"
+    )
+
+    generar_inspeccion = st.checkbox(
+        "Generar también inspección ocular",
+        value=False,
+        key=f"chk_inspeccion_{key_prefix}",
+        help="Actívalo solo si el atestado incluye inspección ocular en el lugar de los hechos.",
     )
 
     col1, col2 = st.columns([2, 1])
@@ -2315,33 +2645,58 @@ def bloque_generacion_directa_atestado(api_key: str, key_prefix: str):
             return
 
         with st.spinner("Analizando texto..."):
-            origen_detectado, presencial_detectado = detectar_contexto_actuacion(api_key, contenido)
+            origen_detectado, presencial_detectado = detectar_contexto_actuacion(
+                api_key,
+                "\n\n".join(parte for parte in [pinceladas, contenido] if parte.strip()),
+            )
 
         st.info(f"Origen detectado: **{origen_detectado}** · Personación en el lugar: **{presencial_detectado}**")
 
         bloque = _construir_contenido_directo(
-            contenido, origen_detectado, presencial_detectado, orden_autoridad, pinceladas,
+            contenido,
+            origen_detectado,
+            presencial_detectado,
+            orden_autoridad,
+            pinceladas,
+            priorizar_pinceladas=True,
         )
-        prompt_exposicion = PROMPT_INTERCOPS_PREFIX + PROMPT_ATESTADO_EXPOSICION
-        prompt_inspeccion = PROMPT_INTERCOPS_PREFIX + PROMPT_ATESTADO_INSPECCION
+        prompt_exposicion = PROMPT_INTELCOPS_PREFIX + PROMPT_ATESTADO_EXPOSICION
 
-        with st.spinner("Generando exposición e inspección ocular..."):
-            exposicion = generar_texto_con_ia(api_key, prompt_exposicion, bloque)
-            inspeccion = generar_texto_con_ia(api_key, prompt_inspeccion, bloque)
-            documento = (
-                "===== EXPOSICIÓN DE HECHOS =====\n\n"
-                + exposicion
-                + "\n\n===== INSPECCIÓN OCULAR =====\n\n"
-                + inspeccion
-            )
-        datos_ic = {"Datos de Intelcops": contenido}
-        guardar_log_generacion("atestado_exposicion", datos_ic, bloque, exposicion)
-        guardar_log_generacion("atestado_inspeccion", datos_ic, bloque, inspeccion)
+        if generar_inspeccion:
+            prompt_inspeccion = PROMPT_INTELCOPS_PREFIX + PROMPT_ATESTADO_INSPECCION
+            with st.spinner("Generando exposición e inspección ocular..."):
+                exposicion = generar_texto_con_ia(
+                    api_key,
+                    prompt_exposicion,
+                    bloque,
+                    BLOQUE_FIDELIDAD_ATESTADO_EXPOSICION,
+                )
+                inspeccion = generar_texto_con_ia(api_key, prompt_inspeccion, bloque)
+                documento = (
+                    "===== EXPOSICIÓN DE HECHOS =====\n\n"
+                    + exposicion
+                    + "\n\n===== INSPECCIÓN OCULAR =====\n\n"
+                    + inspeccion
+                )
+            datos_ic = {"Datos de INTELCOPS": contenido}
+            guardar_log_generacion("atestado_exposicion", datos_ic, bloque, exposicion)
+            guardar_log_generacion("atestado_inspeccion", datos_ic, bloque, inspeccion)
+        else:
+            with st.spinner("Generando exposición de hechos..."):
+                exposicion = generar_texto_con_ia(
+                    api_key,
+                    prompt_exposicion,
+                    bloque,
+                    BLOQUE_FIDELIDAD_ATESTADO_EXPOSICION,
+                )
+                documento = "===== EXPOSICIÓN DE HECHOS =====\n\n" + exposicion
+            datos_ic = {"Datos de INTELCOPS": contenido}
+            guardar_log_generacion("atestado_exposicion", datos_ic, bloque, exposicion)
 
         st.session_state["resultado_atestado"] = documento
         st.session_state["datos_atestado"] = {
-            "_modo": "directo_intercops",
-            "Datos de Intelcops": contenido,
+            "_modo": "directo_intelcops",
+            "Datos de INTELCOPS": contenido,
         }
 
 
@@ -2367,7 +2722,7 @@ def generar_modulo_simple(
 ):
     cabecera_modulo(titulo, icono)
 
-    tab_directo, tab_campos = st.tabs(["⚡ Desde Intelcops", "📝 Con campos"])
+    tab_directo, tab_campos = st.tabs(["⚡ Desde INTELCOPS", "📝 Con campos"])
 
     with tab_directo:
         bloque_generacion_directa(
@@ -2434,7 +2789,7 @@ def pagina_atestado(api_key: str):
     key_prefix = "atestado"
     cabecera_modulo("Atestado completo", "📄")
 
-    tab_directo, tab_campos = st.tabs(["⚡ Desde Intelcops", "📝 Con campos"])
+    tab_directo, tab_campos = st.tabs(["⚡ Desde INTELCOPS", "📝 Con campos"])
 
     with tab_directo:
         bloque_generacion_directa_atestado(api_key, key_prefix)
@@ -2500,7 +2855,12 @@ def pagina_atestado(api_key: str):
                 orden_autoridad,
             )
             with st.spinner("Generando exposición e inspección ocular..."):
-                exposicion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_EXPOSICION, bloque)
+                exposicion = generar_texto_con_ia(
+                    api_key,
+                    PROMPT_ATESTADO_EXPOSICION,
+                    bloque,
+                    BLOQUE_FIDELIDAD_ATESTADO_EXPOSICION,
+                )
                 inspeccion = generar_texto_con_ia(api_key, PROMPT_ATESTADO_INSPECCION, bloque)
             guardar_log_generacion("atestado_exposicion", datos, bloque, exposicion)
             guardar_log_generacion("atestado_inspeccion", datos, bloque, inspeccion)
@@ -2723,10 +3083,10 @@ MODULOS = {
             ]),
         ],
     },
-    "Informes al juzgado": {
+    "Informe personas": {
         "tipo": "simple",
         "key_prefix": "juzgado",
-        "titulo": "Informes al juzgado",
+        "titulo": "Informe personas",
         "icono": "⚖️",
         "tipo_documento": "Informe al juzgado",
         "campos": CAMPOS_INFORME_JUZGADO,
@@ -2734,8 +3094,8 @@ MODULOS = {
         "resultado_key": "resultado_juzgado",
         "datos_key": "datos_juzgado",
         "prefijo_guardado": "informe_juzgado",
-        "texto_boton_generar": "Generar informe al juzgado",
-        "spinner_texto": "Generando informe al juzgado...",
+        "texto_boton_generar": "Generar informe personas",
+        "spinner_texto": "Generando informe personas...",
         "transformar_datos": None,
         "secciones": [
             ("🕐 Datos generales", [
@@ -2974,7 +3334,7 @@ MODULOS_HOME = [
     {"nombre": "Informe municipal",     "icono": "🏛️", "desc": "Incidencias e intervenciones municipales"},
     {"nombre": "Parte de servicio",     "icono": "📝", "desc": "Registro de actuación policial"},
     {"nombre": "Anomalía",              "icono": "⚠️", "desc": "Notificación de anomalías y riesgos"},
-    {"nombre": "Informes al juzgado",   "icono": "⚖️", "desc": "Informes y diligencias judiciales"},
+    {"nombre": "Informe personas",       "icono": "⚖️", "desc": "Informes y diligencias judiciales"},
     {"nombre": "Denuncia administrativa","icono": "📄", "desc": "Denuncia y acta de infracción"},
 ]
 
@@ -3074,7 +3434,7 @@ else:
             datos_key=config["datos_key"],
             prefijo_guardado=config["prefijo_guardado"],
             texto_boton_generar=config["texto_boton_generar"],
-spinner_texto=config["spinner_texto"],
+            spinner_texto=config["spinner_texto"],
             transformar_datos=config["transformar_datos"],
             secciones=config.get("secciones"),
         )
